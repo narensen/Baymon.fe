@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text as RNText, View } from 'react-native';
+import type { ReactNode } from 'react';
+import { Pressable, StyleSheet, Text as RNText, View } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 
 import { Markdown } from '@/components/chat/markdown';
 import { renderInline } from '@/components/chat/rich/inline';
@@ -164,14 +166,27 @@ export function Checklist({ title, items }: { title?: string; items: CheckItem[]
   );
 }
 
-export function Compare({ options }: { options: CompareOption[] }) {
+/**
+ * A single horizontally scrolling row that bleeds to the screen edges while its first item stays
+ * aligned with the text column. Uses gesture-handler's ScrollView so it cooperates with the
+ * drawer's swipe: dragging inside the rail scrolls it instead of opening the sidebar.
+ */
+function Rail({ children, gap = Spacing.three }: { children: ReactNode; gap?: number }) {
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      // Let the cards run to the screen edge while staying aligned with the text column.
-      style={styles.compareScroll}
-      contentContainerStyle={styles.compareRow}>
+      decelerationRate="fast"
+      style={styles.scrollRow}
+      contentContainerStyle={[styles.scrollRowContent, { gap }]}>
+      {children}
+    </ScrollView>
+  );
+}
+
+export function Compare({ options }: { options: CompareOption[] }) {
+  return (
+    <Rail>
       {options.map((o, i) => (
         <View key={i} style={[styles.compareCard, o.best && styles.compareBest]}>
           <View style={styles.cardHead}>
@@ -205,22 +220,22 @@ export function Compare({ options }: { options: CompareOption[] }) {
           ))}
         </View>
       ))}
-    </ScrollView>
+    </Rail>
   );
 }
 
 export function Suggestions({ items, onPick }: { items: string[]; onPick?: (text: string) => void }) {
   if (!onPick) return null;
   return (
-    <View style={styles.suggestions}>
+    <Rail gap={Spacing.two}>
       {items.map((s) => (
         <PressableScale key={s} haptic onPress={() => onPick(s)} style={styles.suggestion}>
-          <Text variant="caption" style={styles.suggestionText}>
+          <Text variant="caption" numberOfLines={1} style={styles.suggestionText}>
             {s}
           </Text>
         </PressableScale>
       ))}
-    </View>
+    </Rail>
   );
 }
 
@@ -271,15 +286,15 @@ const styles = StyleSheet.create({
   checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.three, paddingVertical: 2 },
   checkText: { flex: 1, color: Colors.text, fontFamily: Fonts.sans, fontSize: 15, lineHeight: 21 },
   checkDone: { color: Colors.textFaint, textDecorationLine: 'line-through' },
-  compareScroll: { marginHorizontal: -Spacing.five },
-  compareRow: { gap: Spacing.three, paddingHorizontal: Spacing.five },
+  // Cancels the chat list's side padding so the row scrolls under the screen edges.
+  scrollRow: { marginHorizontal: -Spacing.five, flexGrow: 0 },
+  scrollRowContent: { paddingHorizontal: Spacing.five },
   compareCard: { ...surface, width: 248, padding: Spacing.four, gap: Spacing.two },
   compareBest: { borderColor: Colors.text },
   pc: { flexDirection: 'row', gap: Spacing.two },
   pcMark: { width: 12, fontWeight: '700' },
   pcText: { flex: 1, color: Colors.text, fontFamily: Fonts.sans, fontSize: 14, lineHeight: 20 },
   pcCon: { color: Colors.textMuted },
-  suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   suggestion: {
     paddingHorizontal: Spacing.three + 2,
     paddingVertical: Spacing.two,

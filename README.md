@@ -1,56 +1,145 @@
-# Welcome to your Expo app 👋
+<div align="center">
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+# ● Baymon
 
-## Get started
+**A personal AI companion you can type to, or just talk to.**
 
-1. Install dependencies
+Matte black. Off-white type. Physics-based motion. One agent that remembers you.
 
-   ```bash
-   npm install
-   ```
+`Expo SDK 57` · `React Native 0.86` · `Reanimated 4` · `Supabase` · `FastAPI + Groq`
 
-2. Start the app
+</div>
 
-   ```bash
-   npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+## What it does
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+| | |
+|---|---|
+| **Talk, hands-free** | Speak; Baymon notices when you've stopped, answers out loud and listens again. Tap the orb to interrupt. |
+| **Type, with rich replies** | Replies render as native components: timelines, checklists, comparisons, stats and tap-to-send follow-ups. |
+| **Dictate** | The mic in the message box turns speech into editable text. |
+| **Memory you control** | See, edit, recategorize and delete everything the agent remembers about you. |
+| **Six voices** | Pick one in Settings and hear a preview first. |
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### The orb is the agent
 
-## Get a fresh project
+It follows your voice while listening, spins while thinking, pulses while speaking and breathes while
+idle. Every frame runs on the UI thread, so the screen never re-renders to animate it.
 
-When you're ready, run:
+---
+
+## Quick start
 
 ```bash
-npm run reset-project
+npm install
+cp .env.example .env.local      # then fill it in (below)
+npx expo start                  # scan the QR code with Expo Go
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### `.env.local`
 
-### Other setup steps
+```bash
+EXPO_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_…
+EXPO_PUBLIC_API_URL=https://<your-service>.onrender.com
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+> [!CAUTION]
+> Use the **publishable** key only. `EXPO_PUBLIC_*` values are bundled into the app, and a
+> `sb_secret_…` key bypasses row-level security for anyone who extracts it.
 
-## Learn more
+### Database
 
-To learn more about developing your project with Expo, look at the following resources:
+Run [`supabase/migrations/20261014000000_users_profile.sql`](supabase/migrations/20261014000000_users_profile.sql)
+once in the Supabase SQL editor. It adds:
+- a trigger that creates the `public.users` row at signup;
+- row-level security so each user only sees their own row;
+- `username_available()` for the live username check.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### Backend
 
-## Join the community
+The app talks to the Baymon API (FastAPI on Render). All `/v1` routes take the Supabase access token
+as `Authorization: Bearer …`.
 
-Join our community of developers creating universal apps.
+| Endpoint | Used for |
+|---|---|
+| `POST /v1/chat` | Typed messages; spoken replies when `voice: true` |
+| `POST /v1/talk` | One-request voice turns ([spec](docs/talk-endpoint.md)). The app falls back to transcribe + chat on 404. |
+| `POST /v1/transcribe` | Dictation |
+| `POST /v1/speak` | Read-aloud and voice previews |
+| `GET · POST · PATCH · DELETE /v1/memory` | The Memory screen |
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+---
+
+## Agent reply format
+
+Replies are Markdown plus nine UI tags, each rendered as a native component:
+
+```text
+<schedule title="Thursday">
+[{"time": "09:00", "end": "11:30", "title": "Deep work"}, {"time": "12:00", "title": "Lunch"}]
+</schedule>
+```
+
+`callout` · `card` · `table` · `stats` · `schedule` · `steps` · `checklist` · `compare` · `suggestions`
+
+A malformed tag falls back to plain text, so nothing is ever lost. The full spec, with a section you
+can paste straight into the system prompt, is in [`docs/agent-ui-format.md`](docs/agent-ui-format.md).
+
+---
+
+## Project map
+
+```
+src/
+├─ app/                      Expo Router screens
+│  ├─ (auth)/                sign-in, sign-up
+│  └─ (app)/
+│     ├─ (drawer)/           home (chat), memory, settings
+│     └─ memory/[id].tsx     memory editor sheet
+├─ components/
+│  ├─ chat/                  type view, talk view, composer, voice orb
+│  │  └─ rich/               UI-tag renderers (table, schedule, compare…)
+│  └─ ui/                    button, text field, switch, segmented control
+├─ hooks/use-voice.ts        recording, playback, live mic level
+├─ lib/
+│  ├─ api.ts                 authenticated client + error envelope
+│  ├─ agent.ts               chat / talk / transcribe / speak
+│  ├─ conversation.ts        chat store, saved per user
+│  ├─ memory.ts              memory store with optimistic updates
+│  ├─ speech-detector.ts     adaptive end-of-speech detection
+│  └─ ui-format.ts           UI-tag parser
+└─ providers/auth-provider.tsx
+docs/                        backend + prompt specs
+```
+
+---
+
+## How it's built
+
+- **Auth:** `Stack.Protected` guards route groups on the Supabase session. The splash screen stays
+  up until the session is known, so deep links land on the right screen.
+- **Motion:** every interaction uses spring physics on the UI thread and can be interrupted mid-motion.
+  The sidebar, menu icon and page scaling follow your finger frame by frame.
+- **Voice:** mono 16 kHz AAC recordings for small uploads. End-of-speech detection learns each
+  room's noise floor, because Android reports peak loudness and iOS reports average.
+- **Keyboard:** a frame-synced spacer measured from the screen edge, correct under Android
+  edge-to-edge, and it works in Expo Go.
+- **State:** small external stores (`useSyncExternalStore`) with optimistic writes and rollback.
+  The React Compiler handles memoization.
+
+---
+
+## Scripts
+
+```bash
+npx expo start          # dev server
+npx expo lint           # lint
+npx tsc --noEmit        # typecheck
+npx expo-doctor         # dependency health
+npx eas-cli@latest build --profile development   # dev build
+```
+
+Everything runs in **Expo Go**. You only need a development build for the custom splash fade and the
+microphone permission text.

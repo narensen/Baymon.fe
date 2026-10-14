@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { FlatList, Keyboard, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeOut, LayoutAnimationConfig, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -16,6 +16,9 @@ import { conversation, useConversation, type ChatMessage } from '@/lib/conversat
 import { haptics } from '@/lib/haptics';
 import { preferences } from '@/lib/preferences';
 import { useAuth } from '@/providers/auth-provider';
+
+/** Vertical padding of the list content; part of the scroll math in `onRowLayout`. */
+const LIST_PADDING = Spacing.four;
 
 const SUGGESTIONS = ['Plan my day', 'What do you remember about me?', 'Help me think something through'];
 
@@ -55,13 +58,39 @@ export function TypeView() {
     }
   }
 
+  const list = useRef<FlatList<ChatMessage>>(null);
+
+  /** The list is inverted, so offset 0 is the newest message at the bottom. */
+  function scrollToLatest() {
+    requestAnimationFrame(() => list.current?.scrollToOffset({ offset: 0, animated: true }));
+  }
+
+  /** A reply waiting to be brought into view once it has been laid out (and so has a height). */
+  const focusId = useRef<string | null>(null);
+  const viewportHeight = useRef(0);
+
+  /**
+   * Scroll so a new reply starts at the top of the screen. The list is inverted (offset 0 = bottom),
+   * so its first line is `LIST_PADDING + height` above the bottom. Short replies need no scroll.
+   */
+  function onRowLayout(id: string, height: number) {
+    if (focusId.current !== id) return;
+    focusId.current = null;
+    const offset = Math.max(0, LIST_PADDING + height - viewportHeight.current);
+    list.current?.scrollToOffset({ offset, animated: true });
+  }
+
   async function send(text: string) {
     if (!text.trim() || thinking) return;
     setDraft('');
     setNotice(null);
+    // Get out of the way: drop the keyboard and show the message being answered.
+    Keyboard.dismiss();
+    scrollToLatest();
     try {
       const reply = await conversation.send(text);
       haptics.light();
+      if (reply) focusId.current = reply.id;
       // Spoken replies in type mode come back with audio when "Read replies aloud" is on.
       if (reply?.audioUri && preferences.get().speakReplies) void playMessage(reply);
     } catch {
@@ -123,7 +152,9 @@ export function TypeView() {
           <AgentBar phase={phase} level={voice.level} />
           <LayoutAnimationConfig skipEntering>
           <FlatList
+            ref={list}
             inverted
+            onLayout={(e) => (viewportHeight.current = e.nativeEvent.layout.height)}
             data={data}
             keyExtractor={(m) => m.id}
             keyboardShouldPersistTaps="handled"
@@ -131,7 +162,7 @@ export function TypeView() {
             contentContainerStyle={styles.list}
             ListHeaderComponent={thinking ? <TypingIndicator /> : null}
             renderItem={({ item, index }) => (
-              <View style={styles.item}>
+              <View style={styles.item} onLayout={(e) => onRowLayout(item.id, e.nativeEvent.layout.height)}>
                 <MessageRow
                   message={item}
                   audio={audio?.id === item.id ? audio.state : 'idle'}
@@ -236,7 +267,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   list: {
     paddingHorizontal: Spacing.five,
-    paddingVertical: Spacing.four,
+    paddingVertical: LIST_PADDING,
     width: '100%',
     maxWidth: MaxContentWidth + Spacing.five * 2,
     alignSelf: 'center',
