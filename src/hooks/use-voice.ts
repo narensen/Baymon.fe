@@ -48,6 +48,8 @@ export function useVoice() {
   const player = useAudioPlayer(null, { updateInterval: 100 });
   const level = useSharedValue(0);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Whether the current recording contains speech (so far). */
+  const heardSpeech = useRef(false);
   const playbackDone = useRef<(() => void) | null>(null);
 
   function stopPolling() {
@@ -100,11 +102,13 @@ export function useVoice() {
     }
 
     const detector = createSpeechDetector(Date.now());
+    heardSpeech.current = false;
     stopPolling();
     poll.current = setInterval(() => {
       const status = safely(() => recorder.getStatus());
       if (!status?.isRecording) return;
       const event = detector.push(status.metering, Date.now());
+      if (event === 'speaking' || event === 'ended') heardSpeech.current = true;
       level.set(detector.level);
       if (!autoStop) return;
       if (event === 'ended') {
@@ -147,5 +151,5 @@ export function useVoice() {
     playbackDone.current = null;
   }
 
-  return { level, listen, stopListening, play, stopPlayback, player };
+  return { level, listen, stopListening, play, stopPlayback, player, hasHeardSpeech: () => heardSpeech.current };
 }

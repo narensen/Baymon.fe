@@ -5,8 +5,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Composer, type Dictation } from '@/components/chat/composer';
 import { MessageRow, TypingIndicator } from '@/components/chat/message';
+import { LiveSteps } from '@/components/chat/steps';
 import { VoiceOrb, type TalkPhase } from '@/components/chat/voice-orb';
 import { KeyboardSpacer } from '@/components/keyboard-spacer';
+import { Notice } from '@/components/ui/notice';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Text } from '@/components/ui/text';
 import { Colors, MaxContentWidth, Radius, Spacing, Springs } from '@/constants/theme';
@@ -23,7 +25,7 @@ const LIST_PADDING = Spacing.four;
 const SUGGESTIONS = ['Plan my day', 'What do you remember about me?', 'Help me think something through'];
 
 export function TypeView() {
-  const { messages, thinking } = useConversation();
+  const { messages, thinking, working } = useConversation();
   const insets = useSafeAreaInsets();
   const voice = useVoice();
   const [draft, setDraft] = useState('');
@@ -160,7 +162,13 @@ export function TypeView() {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentContainerStyle={styles.list}
-            ListHeaderComponent={thinking ? <TypingIndicator /> : null}
+            ListHeaderComponent={
+              !thinking ? null : working?.length ? (
+                <LiveSteps steps={working} onStop={() => conversation.cancel()} />
+              ) : (
+                <TypingIndicator />
+              )
+            }
             renderItem={({ item, index }) => (
               <View style={styles.item} onLayout={(e) => onRowLayout(item.id, e.nativeEvent.layout.height)}>
                 <MessageRow
@@ -177,13 +185,7 @@ export function TypeView() {
           </LayoutAnimationConfig>
         </>
       )}
-      {notice ? (
-        <Animated.View key={notice} entering={FadeIn} style={styles.notice}>
-          <Text variant="caption" tone="danger" numberOfLines={2}>
-            {notice}
-          </Text>
-        </Animated.View>
-      ) : null}
+      {notice ? <Notice key={notice} text={notice} style={styles.notice} /> : null}
       <Composer
         value={draft}
         onChangeText={setDraft}
@@ -273,7 +275,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   item: { paddingVertical: Spacing.three },
-  notice: { paddingHorizontal: Spacing.five, paddingBottom: Spacing.one },
+  notice: { marginHorizontal: Spacing.four, marginBottom: Spacing.one },
   hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.four, padding: Spacing.five },
   // The orb reserves room for its glow; pull the text up into that space.
   heroOrb: { marginVertical: -Spacing.six },

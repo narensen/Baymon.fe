@@ -7,9 +7,22 @@ import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { Colors } from '@/constants/theme';
+import { notifications } from '@/lib/notifications';
 import { AuthProvider, useAuth } from '@/providers/auth-provider';
 
 SplashScreen.preventAutoHideAsync();
+
+// Reminders still show as banners while Baymon is open.
+if (process.env.EXPO_OS !== 'web') {
+  notifications()?.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 // Not supported in Expo Go (it only logs a warning there).
 if (Constants.executionEnvironment !== ExecutionEnvironment.StoreClient) {
   SplashScreen.setOptions({ fade: true, duration: 280 });

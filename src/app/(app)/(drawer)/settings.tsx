@@ -19,6 +19,7 @@ import { Icon } from '@/components/ui/icon';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Text } from '@/components/ui/text';
 import { TextField } from '@/components/ui/text-field';
+import { PhoneAccess } from '@/components/phone-access';
 import { VoiceSettings } from '@/components/voice-settings';
 import { Colors, MaxContentWidth, Radius, Spacing, Springs } from '@/constants/theme';
 import { haptics } from '@/lib/haptics';
@@ -170,7 +171,11 @@ function ProfileForm({ profile, onScroll }: FormProps) {
           <VoiceSettings />
         </Section>
 
-        <Section title="Account" index={3}>
+        <Section title="Phone access" index={3}>
+          <PhoneAccess />
+        </Section>
+
+        <Section title="Account" index={4}>
           <View style={styles.card}>
             <InfoRow label="Email" value={session?.user.email ?? '—'} />
             <View style={styles.divider} />

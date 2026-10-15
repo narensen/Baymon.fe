@@ -21,6 +21,7 @@ Matte black. Off-white type. Physics-based motion. One agent that remembers you.
 | **Dictate** | The mic in the message box turns speech into editable text. |
 | **Memory you control** | See, edit, recategorize and delete everything the agent remembers about you. |
 | **Six voices** | Pick one in Settings and hear a preview first. |
+| **Operates your phone** | 40 tools: it reads any app's screen and taps, types and scrolls, plus files, alarms, reminders, calendar, contacts, calls, maps and settings. |
 
 ### The orb is the agent
 
@@ -109,8 +110,11 @@ src/
 │  ├─ conversation.ts        chat store, saved per user
 │  ├─ memory.ts              memory store with optimistic updates
 │  ├─ speech-detector.ts     adaptive end-of-speech detection
+│  ├─ tools/                 the phone tool catalog + runner (sent to the backend)
+│  ├─ device.ts              device registration
 │  └─ ui-format.ts           UI-tag parser
 └─ providers/auth-provider.tsx
+modules/baymon-agent/        native Android module: screen control, apps, files, notifications
 docs/                        backend + prompt specs
 ```
 
@@ -141,5 +145,6 @@ npx expo-doctor         # dependency health
 npx eas-cli@latest build --profile development   # dev build
 ```
 
-Everything runs in **Expo Go**. You only need a development build for the custom splash fade and the
-microphone permission text.
+Chat, voice and memory run in **Expo Go**. Operating the phone (screen control, apps, file
+search, notifications, alarms) needs the **development build**, because it uses Baymon's own
+Android module (`modules/baymon-agent`). See [`docs/agent-platform.md`](docs/agent-platform.md).

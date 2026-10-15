@@ -35,8 +35,10 @@ export function VoiceOrb({ phase, level, size = 210 }: Props) {
   // One UI-thread loop produces the orb's "energy" for every phase.
   const energy = useSharedValue(0);
   const spin = useSharedValue(0);
-  useFrameCallback(({ timeSinceFirstFrame }) => {
-    const t = timeSinceFirstFrame / 1000;
+  // Absolute frame time, not time since this callback started: re-renders can re-register the
+  // callback, and a relative clock would restart the spin and breathing mid-animation.
+  useFrameCallback(({ timestamp }) => {
+    const t = timestamp / 1000;
     const id = phaseId.get();
     let target: number;
     if (id === 1) target = level.get();

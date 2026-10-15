@@ -1,0 +1,7 @@
+{
+  "name": "baymon-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Baymon's Android hands: reads the screen's structure and operates apps, plus device actions.",
+  "main": "index.ts"
+}

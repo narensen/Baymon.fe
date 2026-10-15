@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="baymon_screen_service_label">Baymon</string>
+    <string name="baymon_screen_service_description">Lets Baymon operate apps for you: it reads the text and buttons on screen and taps, types and scrolls when you ask it to do something. Screen text is sent to your Baymon server only while it is doing a task for you.</string>
+    <string name="baymon_notifications_service_label">Baymon</string>
+</resources>

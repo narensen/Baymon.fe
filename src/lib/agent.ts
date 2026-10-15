@@ -1,5 +1,7 @@
 import { api, ApiError, request } from '@/lib/api';
 import { audioUriFromResponse, recordingPart } from '@/lib/audio-files';
+import { deviceId } from '@/lib/device';
+import type { Action, ActionResult } from '@/lib/tools';
 import { toPlainSpeech } from '@/lib/ui-format';
 
 /** Matches `Voice` in the API. */
@@ -10,8 +12,16 @@ export type ChatMode = 'type' | 'talk';
 
 export type ChatTurn = { role: 'user' | 'assistant'; content: string };
 
+/** Tool-loop fields on chat/talk responses (docs/agent-platform.md). */
+export type ToolTurn = {
+  turn_id?: string | null;
+  /** Tool calls for this phone to run; results go to `continueTurn`. */
+  actions?: Action[];
+  awaiting_results?: boolean;
+};
+
 /** Mirrors `ChatResponse`. */
-export type ChatReply = {
+export type ChatReply = ToolTurn & {
   text: string;
   speech_text: string | null;
   audio_base64: string | null;
@@ -42,12 +52,29 @@ export function chat(input: {
       voice: input.voice,
       mode: input.mode,
       tts_voice: input.ttsVoice,
+      device_id: deviceId(),
     },
   });
 }
 
+/**
+ * Sends tool results back so the model can continue the same turn. The response has the same shape
+ * as `/v1/chat` (plus `caption` for voice turns) and may contain more actions.
+ */
+export function continueTurn(
+  turnId: string,
+  results: ActionResult[],
+  input: { voice: boolean; mode: ChatMode; ttsVoice: Voice }
+) {
+  return api<ChatReply & { caption?: string | null }>(`/v1/chat/${encodeURIComponent(turnId)}/results`, {
+    method: 'POST',
+    timeoutMs: 120_000,
+    body: { results, voice: input.voice, mode: input.mode, tts_voice: input.ttsVoice, device_id: deviceId() },
+  });
+}
+
 /** Mirrors the proposed `TalkResponse` (docs/talk-endpoint.md). */
-export type TalkReply = {
+export type TalkReply = ToolTurn & {
   transcript: string;
   text: string;
   caption: string;
@@ -77,6 +104,7 @@ export async function talkTurn(input: {
     form.append('file', await recordingPart(input.recordingUri));
     form.append('history', JSON.stringify(history));
     form.append('tts_voice', input.ttsVoice);
+    form.append('device_id', deviceId());
     try {
       return await api<TalkReply>('/v1/talk', { method: 'POST', body: form, timeoutMs: 120_000 });
     } catch (e) {
@@ -97,6 +125,9 @@ export async function talkTurn(input: {
     audio_mime: reply.audio_mime,
     mode: reply.mode,
     warnings: reply.warnings,
+    turn_id: reply.turn_id,
+    actions: reply.actions,
+    awaiting_results: reply.awaiting_results,
   };
 }
 

@@ -14,6 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { RichText } from '@/components/chat/rich/rich-text';
+import { StepsSummary } from '@/components/chat/steps';
 import { Icon } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Text } from '@/components/ui/text';
@@ -70,6 +71,7 @@ export function MessageRow({ message, audio, onToggleAudio, onRetry, onSuggest }
 
   return (
     <Animated.View entering={fresh ? enter : undefined} style={styles.assistantRow}>
+      {message.steps?.length ? <StepsSummary steps={message.steps} /> : null}
       <RichText text={message.content} onSuggest={onSuggest} animate={fresh} />
       {message.warnings?.map((w) => (
         <Text key={w} variant="caption" tone="faint">

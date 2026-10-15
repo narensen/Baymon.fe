@@ -1,18 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { VoiceOrb, type TalkPhase } from '@/components/chat/voice-orb';
 import { Icon } from '@/components/ui/icon';
+import { Notice } from '@/components/ui/notice';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Text } from '@/components/ui/text';
-import { Colors, Spacing } from '@/constants/theme';
+import { Colors, Spacing, Springs } from '@/constants/theme';
 import { useVoice } from '@/hooks/use-voice';
 import { ApiError } from '@/lib/api';
 import { toSpeakable } from '@/lib/agent';
 import { conversation, useConversation } from '@/lib/conversation';
 import { haptics } from '@/lib/haptics';
+
+/**
+ * Height the rest of the screen needs besides the orb: header, status line, caption, a notice of a
+ * few lines, controls and gaps. The orb gets what's left, so small screens shrink the orb rather
+ * than pushing text off the bottom.
+ */
+const RESERVED_HEIGHT = 440;
+const ORB_MAX = 210;
+const ORB_MIN = 120;
+
+/** Things above the notice glide out of its way instead of jumping. */
+const glide = LinearTransition.springify().damping(Springs.snappy.damping).stiffness(Springs.snappy.stiffness);
 
 const STATUS: Record<TalkPhase, string> = {
   idle: 'Tap to talk',
@@ -27,16 +40,33 @@ const STATUS: Record<TalkPhase, string> = {
  */
 export function TalkView() {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const available = height - insets.top - insets.bottom - RESERVED_HEIGHT;
+  // The orb's canvas is 1.5× its size (room for the glow).
+  const orbSize = Math.round(Math.min(ORB_MAX, Math.max(ORB_MIN, available / 1.5)));
+  const captionHeight = Math.round(Math.min(150, height * 0.18));
   const voice = useVoice();
-  const { messages } = useConversation();
+  const { messages, working } = useConversation();
   const [phase, setPhase] = useState<TalkPhase>('idle');
+  const isWorking = phase === 'thinking' && !!working?.length;
   const [heard, setHeard] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Informational notices (e.g. "didn't catch that") are muted; failures are red. */
+  const [noticeIsError, setNoticeIsError] = useState(true);
   const session = useRef(0);
+  // Mic and speaker toggles: state drives the UI, refs let an in-flight turn see the latest choice.
+  const [micOn, setMicOn] = useState(true);
+  const [speakerOn, setSpeakerOn] = useState(true);
+  const micOnRef = useRef(true);
+  const speakerOnRef = useRef(true);
 
   const lastReply = [...messages].reverse().find((m) => m.role === 'assistant');
 
   async function listen() {
+    if (!micOnRef.current) {
+      setPhase('idle');
+      return;
+    }
     const id = ++session.current;
     const started = await voice.listen({
       autoStop: true,
@@ -51,6 +81,7 @@ export function TalkView() {
     setNotice(null);
     if (started !== 'ok') {
       setPhase('idle');
+      setNoticeIsError(true);
       setNotice(
         started === 'denied'
           ? 'Microphone access is off. Enable it in your device settings to talk.'
@@ -79,35 +110,79 @@ export function TalkView() {
       if (!reply || session.current !== id) return;
       // The agent may have switched to typing via its switch_mode tool; the parent swaps views.
       if (conversation.getMode() !== 'talk') return;
-      if (reply.warnings) setNotice(reply.warnings.join(' '));
+      if (reply.warnings) {
+        setNoticeIsError(true);
+        setNotice(reply.warnings.join(' '));
+      }
 
-      if (reply.audioUri) {
+      // Speaker off: the reply is shown as a caption only.
+      if (reply.audioUri && speakerOnRef.current) {
         setPhase('speaking');
         await voice.play(reply.audioUri);
         if (session.current !== id) return;
       }
+      // Mic off: finish this turn, then wait instead of listening again.
       void listen();
     } catch (e) {
       if (session.current !== id) return;
-      if (e instanceof ApiError && e.code === 'transcription_empty') {
-        setNotice('Didn’t catch that. Go ahead.');
+      if (e instanceof ApiError && (e.code === 'transcription_empty' || e.code === 'audio_empty')) {
+        setNoticeIsError(false);
+        // With the mic off there's no "go ahead": just settle back to idle.
+        setNotice(micOnRef.current ? 'Didn’t catch that. Go ahead.' : null);
         void listen();
         return;
       }
+      // Shows up in the Expo terminal, with the code and status needed to tell client and server failures apart.
+      console.warn(
+        '[talk] turn failed:',
+        e instanceof ApiError ? `${e.code} (HTTP ${e.status || 'n/a'}): ${e.message}` : e
+      );
       haptics.error();
+      setNoticeIsError(true);
       setNotice(e instanceof Error ? e.message : 'Something went wrong');
       setPhase('idle');
     }
   }
 
-  function stop() {
-    session.current++;
-    voice.stopPlayback();
-    void voice.stopListening();
-    setPhase('idle');
+  function toggleMic() {
+    const next = !micOnRef.current;
+    micOnRef.current = next;
+    setMicOn(next);
+    if (next) {
+      if (phase === 'idle') void listen();
+    } else if (phase === 'listening') {
+      // Mic off mid-sentence = "I'm done talking": answer what was said, then stay quiet.
+      // If nothing was said yet, just stop listening.
+      if (voice.hasHeardSpeech()) {
+        void respond(session.current);
+      } else {
+        session.current++;
+        void voice.stopListening();
+        setPhase('idle');
+      }
+    }
+  }
+
+  function toggleSpeaker() {
+    const next = !speakerOnRef.current;
+    speakerOnRef.current = next;
+    setSpeakerOn(next);
+    // Silence the current reply; the conversation carries on.
+    if (!next && phase === 'speaking') voice.stopPlayback();
   }
 
   function onOrbPress() {
+    if (isWorking) {
+      // Stop the task; the steps taken so far stay in the conversation.
+      session.current++;
+      conversation.cancel();
+      setPhase('idle');
+      return;
+    }
+    if (!micOnRef.current) {
+      toggleMic();
+      return;
+    }
     if (phase === 'listening') {
       // Done talking: don't wait for the silence timeout.
       void respond(session.current);
@@ -129,47 +204,61 @@ export function TalkView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const status = isWorking
+    ? 'Working · tap to stop'
+    : !micOn && phase === 'idle'
+      ? 'Mic off · tap to turn on'
+      : STATUS[phase];
+
   // While thinking, echo this turn's words if known; otherwise keep the agent's last words on screen.
-  const caption =
-    phase === 'thinking' ? heard : lastReply && (lastReply.caption ?? lastReply.speech ?? toSpeakable(lastReply.content));
+  // While Baymon is operating the phone, show what it's doing right now.
+  const currentStep = isWorking ? working?.[working.length - 1]?.label : null;
+  const caption = currentStep
+    ? `${currentStep}…`
+    : phase === 'thinking'
+      ? heard
+      : lastReply && (lastReply.caption ?? lastReply.speech ?? toSpeakable(lastReply.content));
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom + Spacing.five }]}>
+    <View style={[styles.container, { paddingBottom: insets.bottom + Spacing.four }]}>
       <View style={styles.stage}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={STATUS[phase]}
-          onPress={onOrbPress}
-          disabled={phase === 'thinking'}>
-          <VoiceOrb phase={phase} level={voice.level} />
-        </Pressable>
-
-        <Animated.View key={phase} entering={FadeInDown.springify().damping(18)} exiting={FadeOut.duration(120)}>
-          <Text variant="overline" tone="muted" style={styles.center}>
-            {STATUS[phase]}
-          </Text>
+        <Animated.View layout={glide}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={status}
+            onPress={onOrbPress}
+            disabled={phase === 'thinking' && !isWorking}>
+            <VoiceOrb phase={phase} level={voice.level} size={orbSize} />
+          </Pressable>
         </Animated.View>
 
-        <View style={styles.captionBox}>
-          {caption ? (
-            <Animated.View key={caption} entering={FadeIn.duration(320)} exiting={FadeOut.duration(160)}>
-              {/* Never truncated: a long caption scrolls inside a fixed area. */}
-              <ScrollView style={styles.captionScroll} showsVerticalScrollIndicator={false}>
-                <Text tone={phase === 'thinking' ? 'default' : 'muted'} style={[styles.center, styles.caption]}>
-                  {phase === 'thinking' ? `“${caption}”` : caption}
-                </Text>
-              </ScrollView>
-            </Animated.View>
-          ) : null}
-          {notice ? (
-            <Animated.View key={notice} entering={FadeIn}>
-              <Text variant="caption" tone="danger" style={styles.center}>
-                {notice}
-              </Text>
-            </Animated.View>
-          ) : null}
-        </View>
+        <Animated.View
+          key={status}
+          layout={glide}
+          entering={FadeInDown.springify().damping(18)}
+          exiting={FadeOut.duration(120)}>
+          <Text variant="overline" tone="muted" style={styles.center}>
+            {status}
+          </Text>
+        </Animated.View>
       </View>
+
+      {/* Fixed height whether or not there's a caption, so the orb doesn't jump when one appears. */}
+      <Animated.View layout={glide} style={[styles.captionArea, { height: captionHeight }]}>
+        {caption ? (
+          <Animated.View key={caption} entering={FadeIn.duration(320)} exiting={FadeOut.duration(160)} style={styles.flex}>
+            {/* Never truncated: a long caption scrolls inside its area. */}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.captionContent}>
+              <Text tone={phase === 'thinking' && !currentStep ? 'default' : 'muted'} style={[styles.center, styles.caption]}>
+                {phase === 'thinking' && !currentStep ? `“${caption}”` : caption}
+              </Text>
+            </ScrollView>
+          </Animated.View>
+        ) : null}
+      </Animated.View>
+
+      {/* Its own row above the controls: nothing can push it off screen or cover it. */}
+      {notice ? <Notice key={notice} text={notice} error={noticeIsError} style={styles.notice} /> : null}
 
       <View style={styles.controls}>
         <PressableScale
@@ -184,13 +273,23 @@ export function TalkView() {
         <PressableScale
           haptic
           scaleTo={0.9}
-          accessibilityRole="button"
-          accessibilityLabel={phase === 'idle' ? 'Start talking' : 'Pause'}
-          onPress={phase === 'idle' ? listen : stop}
-          style={[styles.control, styles.primary]}>
-          <Icon name={phase === 'idle' ? 'mic' : 'pause'} size={22} color={Colors.inverse} />
+          accessibilityRole="switch"
+          accessibilityLabel="Microphone"
+          accessibilityState={{ checked: micOn }}
+          onPress={toggleMic}
+          style={[styles.control, styles.primary, !micOn && styles.primaryOff]}>
+          <Icon name={micOn ? 'mic' : 'micOff'} size={22} color={micOn ? Colors.inverse : Colors.text} />
         </PressableScale>
-        <View style={styles.spacer} />
+        <PressableScale
+          haptic
+          scaleTo={0.9}
+          accessibilityRole="switch"
+          accessibilityLabel="Speaker"
+          accessibilityState={{ checked: speakerOn }}
+          onPress={toggleSpeaker}
+          style={[styles.control, !speakerOn && styles.controlOff]}>
+          <Icon name={speakerOn ? 'speaker' : 'speakerOff'} size={20} color={speakerOn ? Colors.textMuted : Colors.danger} />
+        </PressableScale>
       </View>
     </View>
   );
@@ -198,11 +297,13 @@ export function TalkView() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: Spacing.five },
-  stage: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.four },
+  stage: { flex: 1, minHeight: 0, alignItems: 'center', justifyContent: 'center', gap: Spacing.three },
+  flex: { flex: 1 },
   center: { textAlign: 'center' },
-  captionBox: { minHeight: 120, maxWidth: 520, gap: Spacing.two, paddingHorizontal: Spacing.two },
-  captionScroll: { maxHeight: 150 },
+  captionArea: { alignSelf: 'center', width: '100%', maxWidth: 520, marginBottom: Spacing.three },
+  captionContent: { paddingHorizontal: Spacing.two },
   caption: { fontSize: 17, lineHeight: 25 },
+  notice: { marginBottom: Spacing.four },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.six },
   control: {
     width: 56,
@@ -214,6 +315,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth * 2,
     borderColor: Colors.border,
   },
-  spacer: { width: 56, height: 56 },
+  controlOff: { borderColor: 'rgba(242, 85, 90, 0.35)' },
+  primaryOff: { backgroundColor: Colors.surfaceRaised, borderColor: 'rgba(242, 85, 90, 0.45)' },
   primary: { width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.text, borderColor: Colors.text },
 });
