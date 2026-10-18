@@ -1,0 +1,4 @@
+# @react-native-masked-view/masked-view android/build.gradle rewrites this
+# manifest during local Gradle configuration (it strips package= for AGP 7+).
+# EAS fingerprints the file as published, so that rewrite must not count.
+**/node_modules/@react-native-masked-view/masked-view/android/src/main/AndroidManifest.xml
