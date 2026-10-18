@@ -1,0 +1,88 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:1:1-45:12
+INJECTED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:1:1-45:12
+	package
+		INJECTED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml
+	xmlns:tools
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:2:5-51
+	xmlns:android
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:1:11-69
+uses-permission#android.permission.QUERY_ALL_PACKAGES
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:5:5-6:53
+	tools:ignore
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:6:9-50
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:5:22-74
+uses-permission#android.permission.REQUEST_DELETE_PACKAGES
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:8:5-82
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:8:22-79
+uses-permission#android.permission.MANAGE_EXTERNAL_STORAGE
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:10:5-11:40
+	tools:ignore
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:11:9-37
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:10:22-79
+uses-permission#android.permission.READ_EXTERNAL_STORAGE
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:12:5-13:38
+	android:maxSdkVersion
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:13:9-35
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:12:22-77
+uses-permission#android.permission.SYSTEM_ALERT_WINDOW
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:15:5-78
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:15:22-75
+uses-permission#com.android.alarm.permission.SET_ALARM
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:17:5-78
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:17:22-75
+application
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:19:5-44:19
+service#expo.modules.baymonagent.ScreenService
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:21:9-32:19
+	android:label
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:24:13-64
+	android:exported
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:23:13-36
+	android:permission
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:25:13-79
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:22:13-42
+intent-filter#action:name:android.accessibilityservice.AccessibilityService
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:26:13-28:29
+action#android.accessibilityservice.AccessibilityService
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:27:17-92
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:27:25-89
+meta-data#android.accessibilityservice
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:29:13-31:65
+	android:resource
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:31:17-62
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:30:17-60
+service#expo.modules.baymonagent.NotificationsService
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:35:9-43:19
+	android:label
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:38:13-71
+	android:exported
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:37:13-36
+	android:permission
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:39:13-87
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:36:13-49
+intent-filter#action:name:android.service.notification.NotificationListenerService
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:40:13-42:29
+action#android.service.notification.NotificationListenerService
+ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:41:17-99
+	android:name
+		ADDED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:41:25-96
+uses-sdk
+INJECTED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml
+INJECTED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml

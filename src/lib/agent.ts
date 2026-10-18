@@ -41,6 +41,8 @@ export function chat(input: {
   voice: boolean;
   mode: ChatMode;
   ttsVoice: Voice;
+  /** Uploaded files (`POST /v1/attachments`) this message is about. */
+  attachments?: string[];
 }) {
   return api<ChatReply>('/v1/chat', {
     method: 'POST',
@@ -53,6 +55,7 @@ export function chat(input: {
       mode: input.mode,
       tts_voice: input.ttsVoice,
       device_id: deviceId(),
+      ...(input.attachments?.length && { attachments: input.attachments }),
     },
   });
 }

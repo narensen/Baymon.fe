@@ -9,6 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { UpdateReady } from '@/components/app-updates';
 import { Icon, type IconName } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Text } from '@/components/ui/text';
@@ -22,6 +23,7 @@ const ITEM_GAP = 4;
 const ITEMS: { route: string; label: string; icon: IconName }[] = [
   { route: 'index', label: 'Home', icon: 'home' },
   { route: 'memory', label: 'Memory', icon: 'memory' },
+  { route: 'automations', label: 'Automations', icon: 'bolt' },
   { route: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -89,6 +91,7 @@ export function DrawerPanel({ state, navigation }: DrawerContentComponentProps) 
       </View>
 
       <View style={styles.footer}>
+        <UpdateReady />
         <PressableScale
           disabled={signingOut}
           onPress={async () => {

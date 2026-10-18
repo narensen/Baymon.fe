@@ -1,10 +1,15 @@
 import { useSyncExternalStore } from 'react';
 
 import { chat, continueTurn, talkTurn, toSpeakable, type ChatMode, type ChatTurn, type ToolTurn, type Voice } from '@/lib/agent';
+import type { AttachmentRef } from '@/lib/attachments';
 import { audioUriFromBase64 } from '@/lib/audio-files';
+import { automations } from '@/lib/automations';
+import type { NudgeDraft } from '@/lib/nudges/api';
+import { nudgeStore } from '@/lib/nudges/store';
 import { preferences } from '@/lib/preferences';
 import { readJSON, writeJSON } from '@/lib/storage';
 import { describeAction, runAction, type ActionResult } from '@/lib/tools';
+import { DRAFT_SEND_TOOLS, draftsIn, draftTag, replaceDraft, type Draft } from '@/lib/ui-format';
 
 /** One tool call Baymon made on the phone, as shown in the chat. */
 export type Step = {
@@ -36,6 +41,10 @@ export type ChatMessage = {
   isNew?: boolean;
   /** Assistant only: what Baymon did on the phone to produce this reply. */
   steps?: Step[];
+  /** Assistant only: Baymon spoke up on its own (a tapped bubble), not in reply to a message. */
+  nudge?: { id: string; kind: string };
+  /** User only: files sent with the message (shared to Baymon, or picked). */
+  attachments?: AttachmentRef[];
 };
 
 type State = {
@@ -45,6 +54,12 @@ type State = {
   thinking: boolean;
   /** Tool calls of the turn in progress, live. */
   working: Step[] | null;
+  /** Talk mode should read this message out first, then listen (a bubble answered by voice). */
+  speakNext: string | null;
+  /** Bumped to ask talk mode to start listening now (tile, widget, wake word, assistant gesture). */
+  listenRequest: number;
+  /** Open this message's draft for editing (a bubble's Edit). */
+  editNext: string | null;
 };
 
 /** Persist only the tail; the API never looks further back than 20 turns anyway. */
@@ -52,8 +67,12 @@ const PERSIST_LIMIT = 80;
 /** Tool rounds per turn. Operating an app takes many small steps (read, tap, read, type…). */
 const MAX_ROUNDS = 25;
 
-let state: State = { messages: [], mode: 'type', thinking: false, working: null };
+const EMPTY: State = { messages: [], mode: 'type', thinking: false, working: null, speakNext: null, listenRequest: 0, editNext: null };
+
+let state: State = EMPTY;
 let storageKey: string | null = null;
+/** A talk shortcut that arrived before the saved conversation loaded (cold start from the tile). */
+let pendingTalk = false;
 /** Bumped on clear/reset so late replies from an old conversation are dropped. */
 let generation = 0;
 const listeners = new Set<() => void>();
@@ -125,7 +144,11 @@ async function settle(first: TurnReply, startedIn: number, options: LoopOptions)
 function history(): ChatTurn[] {
   return state.messages
     .filter((m) => !m.status && m.content)
-    .map((m) => ({ role: m.role, content: m.content }));
+    .map((m) => ({
+      role: m.role,
+      // Later turns can still refer to "the PDF" by name.
+      content: m.attachments?.length ? `${m.content}\n\n[Attached: ${m.attachments.map((a) => a.name).join(', ')}]` : m.content,
+    }));
 }
 
 export const conversation = {
@@ -142,9 +165,15 @@ export const conversation = {
         mode: saved?.mode === 'talk' ? 'talk' : 'type',
         thinking: false,
         working: null,
+        speakNext: null,
+        editNext: null,
       },
       false
     );
+    if (pendingTalk) {
+      pendingTalk = false;
+      setState({ mode: 'talk', listenRequest: state.listenRequest + 1 });
+    }
   },
 
   getMode: () => state.mode,
@@ -157,7 +186,10 @@ export const conversation = {
    * Send a message. Resolves with the agent's reply message, or `null` if it failed or the
    * conversation was cleared meanwhile. A mode switch requested by the agent is applied here.
    */
-  async send(text: string, { viaVoice = false } = {}): Promise<ChatMessage | null> {
+  async send(
+    text: string,
+    { viaVoice = false, attachments }: { viaVoice?: boolean; attachments?: AttachmentRef[] } = {}
+  ): Promise<ChatMessage | null> {
     const content = text.trim();
     if (!content) return null;
     const startedIn = generation;
@@ -170,6 +202,7 @@ export const conversation = {
       status: 'pending',
       viaVoice,
       isNew: true,
+      ...(attachments?.length && { attachments }),
     };
     setState({ messages: [...state.messages, userMessage], thinking: true });
 
@@ -177,7 +210,14 @@ export const conversation = {
     const wantsAudio = viaVoice || state.mode === 'talk' || speakReplies;
     const mode = state.mode;
     try {
-      const first = await chat({ message: content, history: prior, voice: wantsAudio, mode, ttsVoice });
+      const first = await chat({
+        message: content,
+        history: prior,
+        voice: wantsAudio,
+        mode,
+        ttsVoice,
+        attachments: attachments?.map((a) => a.id),
+      });
       if (startedIn !== generation) return null;
       const settled = await settle(first, startedIn, { voice: wantsAudio, mode, ttsVoice });
       if (!settled) return null;
@@ -199,6 +239,8 @@ export const conversation = {
         working: null,
         ...((reply.mode ?? first.mode) && { mode: reply.mode ?? first.mode ?? mode }),
       });
+      // The turn may have made a reminder or a routine ("remind me when…", "save a routine…").
+      automations.refresh(10_000);
       return assistant;
     } catch (e) {
       if (startedIn !== generation) return null;
@@ -254,6 +296,102 @@ export const conversation = {
     }
   },
 
+  /**
+   * Baymon speaking first: a tapped bubble opens the chat with its message, its drafted reply (if
+   * any) and its suggestions as quick replies. It's part of the history from then on, so replies
+   * continue from it. `voice` reads it out and listens (talk mode); `edit` opens the draft.
+   */
+  addNudge(
+    nudge: { id: string; kind: string; detail: string; suggestions: string[]; draft?: NudgeDraft | null },
+    { voice = false, edit = false }: { voice?: boolean; edit?: boolean } = {}
+  ) {
+    const existing = state.messages.find((m) => m.nudge?.id === nudge.id);
+    if (existing) {
+      if (voice) setState({ mode: 'talk', speakNext: existing.id });
+      else if (edit) setState({ mode: 'type', editNext: existing.id });
+      return;
+    }
+    const draft = nudge.draft?.text
+      ? `\n\n${draftTag({
+          text: nudge.draft.text,
+          ...(nudge.draft.to && { to: nudge.draft.to }),
+          ...(nudge.draft.app && { app: nudge.draft.app }),
+          ...(nudge.draft.reply_key && { send: { tool: 'notification_reply', args: { key: nudge.draft.reply_key } } }),
+        })}`
+      : '';
+    const chips = nudge.suggestions.length
+      ? `\n\n<suggestions>${JSON.stringify(nudge.suggestions.slice(0, 3))}</suggestions>`
+      : '';
+    const message: ChatMessage = {
+      id: newId(),
+      role: 'assistant',
+      content: `${nudge.detail.trim()}${draft}${chips}`,
+      createdAt: Date.now(),
+      isNew: true,
+      nudge: { id: nudge.id, kind: nudge.kind },
+    };
+    setState({
+      messages: [...state.messages, message],
+      // The chips and the draft need the typed view; a voice answer needs talk mode.
+      mode: voice ? 'talk' : 'type',
+      speakNext: voice ? message.id : null,
+      editNext: edit && !voice ? message.id : null,
+    });
+  },
+
+  /** Talk mode, listening now (Quick Settings tile, widget, wake word, assistant gesture). */
+  startTalk() {
+    if (!storageKey) {
+      pendingTalk = true;
+      return;
+    }
+    setState({ mode: 'talk', listenRequest: state.listenRequest + 1 });
+  },
+
+  /** The message talk mode should read out first, once. */
+  consumeSpeakNext(): ChatMessage | null {
+    const id = state.speakNext;
+    if (!id) return null;
+    setState({ speakNext: null }, false);
+    return state.messages.find((m) => m.id === id) ?? null;
+  },
+
+  consumeEditNext(id: string) {
+    if (state.editNext === id) setState({ editNext: null }, false);
+  },
+
+  /**
+   * Sends a drafted reply. With a direct way to send it (an inline notification reply, or a
+   * composer), the phone does it now; otherwise Baymon is asked to send it with its tools.
+   */
+  async sendDraft(messageId: string, index: number, text: string): Promise<'sent' | 'opened' | 'asked'> {
+    const message = state.messages.find((m) => m.id === messageId);
+    const draft = message ? draftsIn(message.content)[index] : undefined;
+    const body = text.trim();
+    if (!message || !draft) throw new Error('That draft is gone.');
+    if (!body) throw new Error('The reply is empty.');
+    const edited: Draft = { ...draft, text: body };
+    const textArg = draft.send && DRAFT_SEND_TOOLS[draft.send.tool];
+    if (draft.send && textArg) {
+      const result = await runAction({ id: newId(), tool: draft.send.tool, args: { ...draft.send.args, [textArg]: body } });
+      if (result.status !== 'done') throw new Error(result.error?.message ?? 'Couldn’t send it.');
+      // An inline reply is sent; a composer is only opened (you tap Send there).
+      const status = draft.send.tool === 'notification_reply' ? 'sent' : 'opened';
+      update(messageId, { content: replaceDraft(message.content, index, edited, status) });
+      if (message.nudge && status === 'sent') nudgeStore.act(message.nudge.id, 'done', undefined, 'draft_sent');
+      return status;
+    }
+    update(messageId, { content: replaceDraft(message.content, index, edited) });
+    await conversation.send(`Send it${draft.to ? ` to ${draft.to}` : ''}${draft.app ? ` on ${draft.app}` : ''}: “${body}”`);
+    return 'asked';
+  },
+
+  /** Runs a saved routine (Baymon carries out its steps with its phone tools). */
+  runRoutine(name: string) {
+    if (state.mode !== 'type') setState({ mode: 'type' });
+    return conversation.send(`Run my “${name}” routine.`);
+  },
+
   /** Resend a failed message. */
   retry(id: string) {
     const failed = state.messages.find((m) => m.id === id);
@@ -289,14 +427,15 @@ export const conversation = {
   /** Start a fresh conversation. */
   clear() {
     generation++;
-    setState({ messages: [], thinking: false, working: null });
+    setState({ messages: [], thinking: false, working: null, speakNext: null, editNext: null });
   },
 
   /** Forget everything in memory (on sign-out). Saved history stays on device for the same user. */
   reset() {
     generation++;
     storageKey = null;
-    state = { messages: [], mode: 'type', thinking: false, working: null };
+    pendingTalk = false;
+    state = EMPTY;
     listeners.forEach((l) => l());
   },
 };

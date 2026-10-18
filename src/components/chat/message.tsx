@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useEffect } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -19,7 +20,9 @@ import { Icon } from '@/components/ui/icon';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { Text } from '@/components/ui/text';
 import { Colors, Radius, Spacing, Springs } from '@/constants/theme';
-import type { ChatMessage } from '@/lib/conversation';
+import type { AttachmentRef } from '@/lib/attachments';
+import { conversation, type ChatMessage } from '@/lib/conversation';
+import { kindLabel } from '@/lib/nudges/api';
 
 const enter = FadeInDown.springify().damping(Springs.snappy.damping).stiffness(Springs.snappy.stiffness);
 
@@ -31,14 +34,17 @@ type Props = {
   onRetry: (message: ChatMessage) => void;
   /** Present only on the latest reply: tapping a suggested follow-up sends it. */
   onSuggest?: (text: string) => void;
+  /** Open this reply's draft for editing (a bubble's Edit). */
+  editDraft?: boolean;
 };
 
-export function MessageRow({ message, audio, onToggleAudio, onRetry, onSuggest }: Props) {
+export function MessageRow({ message, audio, onToggleAudio, onRetry, onSuggest, editDraft = false }: Props) {
   const fresh = !!message.isNew;
   if (message.role === 'user') {
     const failed = message.status === 'error';
     return (
       <Animated.View entering={fresh ? enter : undefined} style={styles.userRow}>
+        {message.attachments?.length ? <Attachments items={message.attachments} /> : null}
         <View style={[styles.bubble, failed && styles.bubbleFailed]}>
           <Text selectable tone="inverse" style={styles.userText}>
             {message.content}
@@ -71,8 +77,23 @@ export function MessageRow({ message, audio, onToggleAudio, onRetry, onSuggest }
 
   return (
     <Animated.View entering={fresh ? enter : undefined} style={styles.assistantRow}>
+      {message.nudge ? (
+        <View style={styles.meta}>
+          <View style={styles.nudgeDot} />
+          <Text variant="caption" tone="faint">
+            Baymon spoke up · {kindLabel(message.nudge.kind)}
+          </Text>
+        </View>
+      ) : null}
       {message.steps?.length ? <StepsSummary steps={message.steps} /> : null}
-      <RichText text={message.content} onSuggest={onSuggest} animate={fresh} />
+      <RichText
+        text={message.content}
+        onSuggest={onSuggest}
+        animate={fresh}
+        onSendDraft={(index, text) => conversation.sendDraft(message.id, index, text)}
+        editDraft={editDraft}
+        onDraftEdited={() => conversation.consumeEditNext(message.id)}
+      />
       {message.warnings?.map((w) => (
         <Text key={w} variant="caption" tone="faint">
           {w}
@@ -94,6 +115,26 @@ export function MessageRow({ message, audio, onToggleAudio, onRetry, onSuggest }
         </PressableScale>
       </View>
     </Animated.View>
+  );
+}
+
+/** Files sent with a message: image thumbnails, otherwise the file's name. */
+function Attachments({ items }: { items: AttachmentRef[] }) {
+  return (
+    <View style={styles.attachments}>
+      {items.map((a) =>
+        a.kind === 'image' && a.uri ? (
+          <Image key={a.id} source={{ uri: a.uri }} style={styles.thumb} contentFit="cover" accessibilityLabel={a.name} />
+        ) : (
+          <View key={a.id} style={styles.fileChip}>
+            <Icon name={a.kind === 'image' ? 'image' : 'doc'} size={14} color={Colors.textMuted} />
+            <Text variant="caption" numberOfLines={1} style={styles.fileName}>
+              {a.name}
+            </Text>
+          </View>
+        )
+      )}
+    </View>
   );
 }
 
@@ -140,6 +181,22 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one, paddingHorizontal: Spacing.one },
   retry: { fontWeight: '600' },
   assistantRow: { gap: Spacing.two },
+  nudgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.textMuted },
+  attachments: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: Spacing.two },
+  thumb: { width: 120, height: 120, borderRadius: Radius.md, backgroundColor: Colors.surface },
+  fileChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one + 2,
+    maxWidth: 240,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surface,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: Colors.border,
+  },
+  fileName: { flexShrink: 1, color: Colors.text },
   actions: { flexDirection: 'row', gap: Spacing.two },
   action: {
     width: 30,

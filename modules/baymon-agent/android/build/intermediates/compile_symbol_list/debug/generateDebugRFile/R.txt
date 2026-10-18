@@ -1,0 +1,4 @@
+int string baymon_notifications_service_label 0x0
+int string baymon_screen_service_description 0x0
+int string baymon_screen_service_label 0x0
+int xml baymon_screen_service 0x0

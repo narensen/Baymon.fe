@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="baymon_screen_service_label">Baymon</string>
-    <string name="baymon_screen_service_description">Lets Baymon operate apps for you: it reads the text and buttons on screen and taps, types and scrolls when you ask it to do something. Screen text is sent to your Baymon server only while it is doing a task for you.</string>
+    <string name="baymon_screen_service_description">Lets Baymon operate apps for you: it reads the text and buttons on screen and taps, types and scrolls when you ask it to do something. Screen text is sent to your Baymon server while it is doing a task for you, when you ask about the screen, and, only if you turn on Screen in Baymon’s settings, as a short excerpt when you switch apps.</string>
     <string name="baymon_notifications_service_label">Baymon</string>
+    <string name="baymon_tile_label">Baymon</string>
+    <string name="baymon_widget_label">Talk to Baymon</string>
+    <string name="baymon_widget_talk">Talk to Baymon</string>
+    <string name="baymon_widget_description">One tap to start talking.</string>
+    <string name="baymon_wake_word_channel">Wake word</string>
+    <string name="baymon_wake_word_listening">Listening for your wake word</string>
 </resources>

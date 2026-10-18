@@ -70,6 +70,15 @@ Markdown body.
   Use for: weighing 2–4 alternatives. Mark at most one option "best": true, only when you recommend it.
   Use this instead of a table for pros/cons.
 
+<draft>
+{"to": "Priya", "app": "WhatsApp", "text": "Yes, see you at 5!", "send": {"tool": "notification_reply", "args": {"key": "<notification key>"}}}
+</draft>
+  Use for: a message you wrote for the user to send (a reply, a text, an email body). The user
+  taps Send or edits it first; never claim it was sent. "to" and "app" are optional. Add "send"
+  only when you know a direct way to send it: notification_reply (args: key), sms_compose
+  (args: to), email_compose (args: to, subject). The app adds the text itself. Without "send",
+  tapping Send asks you to send it with your tools. A draft with status="sent" was already sent.
+
 <suggestions>
 ["Make it shorter", "Add these to my tasks"]
 </suggestions>
@@ -125,6 +134,7 @@ For a solo side project, **Render** is the easier start; **Fly.io** wins once yo
 | `checklist` | Tappable checkboxes (local only) | Body as text |
 | `compare` | Horizontally scrolling option cards; `best` highlighted | Body as text |
 | `suggestions` | Tap-to-send chips, on the latest reply only | Hidden |
+| `draft` | Quoted message with **Send** and **Edit**; shows "Sent" once sent (the app rewrites the tag with `status="sent"`) | Body as text |
 
 Markdown pipe tables are still rendered (through the same table component), so older replies look
 right, but the prompt should steer the model to `<table>`.

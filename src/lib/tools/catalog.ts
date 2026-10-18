@@ -10,7 +10,9 @@ import * as Network from 'expo-network';
 import * as Sharing from 'expo-sharing';
 import { Share } from 'react-native';
 
+import { attachmentKind, uploadAttachment } from '@/lib/attachments';
 import { notifications as loadNotifications } from '@/lib/notifications';
+import { placesStore } from '@/lib/places';
 import { agent, hasNativeAgent } from '@/lib/tools/native';
 import { ToolError, type ToolDef } from '@/lib/tools/types';
 
@@ -74,8 +76,34 @@ const screen: ToolDef[] = [
     label: () => 'Reading the screen',
     run: async () => {
       const r = await agent().readScreen();
-      return { app: r.app, package: r.package, elements: r.elements, screen: r.text };
+      // When Baymon itself is on screen, "this" usually means the app the user came from.
+      const previous = agent().previousApp();
+      const elsewhere = previous && previous.package !== r.package;
+      return {
+        app: r.app,
+        package: r.package,
+        elements: r.elements,
+        screen: r.text,
+        ...(elsewhere && { previous_app: previous.app, previous_package: previous.package }),
+      };
     },
+  },
+  {
+    name: 'screen_read_all',
+    group: 'screen',
+    native: true,
+    timeoutMs: 60_000,
+    description:
+      'Read a long screen in full (an article, a long chat, terms and conditions): collects all the text while scrolling to the end. Use for "summarise this" / "what does this say". With app (a name or package), that app is brought to the front first and Baymon comes back afterwards; when the user is in Baymon, it reads the app they came from (screen_read shows it as previous_app).',
+    parameters: {
+      type: 'object',
+      properties: {
+        app: { type: 'string', description: 'App to read (name or package). Omit to read what is on screen, or the previous app if Baymon is on screen.' },
+        pages: { type: 'integer', minimum: 1, maximum: 20, default: 8, description: 'Most screenfuls to scroll through.' },
+      },
+    },
+    label: (a: { app?: string }) => (a.app ? `Reading ${a.app}` : 'Reading the whole page'),
+    run: (a: { app?: string; pages?: number }) => agent().readScreenAll(a.pages ?? 8, a.app?.trim() || null),
   },
   {
     name: 'screen_tap',
@@ -532,6 +560,36 @@ const files: ToolDef[] = [
     }),
   },
   {
+    name: 'files_read',
+    group: 'files',
+    timeoutMs: 120_000,
+    description:
+      'Read a file or image: a screenshot, photo, PDF or document (a uri or path from files_find, photos_recent, or something the user shared). Returns its text, or for images a description plus any text in it. Use for "remember this screenshot", "what does this PDF say", tickets, receipts, bookings.',
+    parameters: {
+      type: 'object',
+      properties: {
+        uri: { type: 'string', description: 'file:// or content:// uri, or an absolute path.' },
+        name: { type: 'string', description: 'File name, if known.' },
+      },
+      required: ['uri'],
+    },
+    label: (a: { name?: string }) => (a.name ? `Reading ${quote(a.name)}` : 'Reading the file'),
+    run: async (a: { uri: string; name?: string }) => {
+      const raw = requireString(a.uri, 'uri');
+      const uri = stageForSharing(raw.startsWith('/') ? `file://${raw}` : raw);
+      const name = a.name?.trim() || decodeURIComponent(uri.split('/').pop() ?? 'file');
+      const attachment = await uploadAttachment({ uri, name }).catch((e) => {
+        throw new ToolError(e instanceof Error ? e.message : 'Couldn’t read that file.', 'failed');
+      });
+      return {
+        attachment_id: attachment.id,
+        name: attachment.name,
+        kind: attachment.kind ?? attachmentKind(attachment.mime, attachment.name),
+        text: attachment.text ?? '',
+      };
+    },
+  },
+  {
     name: 'clipboard_read',
     group: 'files',
     description: 'Read the text on the clipboard (only works while Baymon is on screen).',
@@ -605,6 +663,51 @@ const web: ToolDef[] = [
     run: async (a: { query: string }) => {
       await openUrl(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(requireString(a.query, 'query'))}`);
       return { opened: 'maps' };
+    },
+  },
+  {
+    name: 'location_save_place',
+    group: 'web',
+    description:
+      'Save where the phone is now (or given coordinates) as a named place, e.g. "Office" when the user says "this is my office". Saved places make reminders like "when I get to the office" work: arriving and leaving are noticed even in the background.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Short name, e.g. "Office", "Home", "Gym".' },
+        latitude: { type: 'number' },
+        longitude: { type: 'number' },
+        radius_m: { type: 'integer', minimum: 75, maximum: 1000, default: 150 },
+      },
+      required: ['name'],
+    },
+    label: (a: { name: string }) => `Saving ${quote(a.name)} as a place`,
+    run: async (a: { name: string; latitude?: number; longitude?: number; radius_m?: number }) => {
+      const point = typeof a.latitude === 'number' && typeof a.longitude === 'number' ? { latitude: a.latitude, longitude: a.longitude } : undefined;
+      try {
+        const place = await placesStore.save(requireString(a.name, 'name'), point, a.radius_m ?? 150);
+        return { saved: place.name, radius_m: place.radius };
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : 'Couldn’t save the place.', 'permission_missing');
+      }
+    },
+  },
+  {
+    name: 'location_places',
+    group: 'web',
+    description: 'The places the user has saved (names only; arriving/leaving them can trigger reminders).',
+    parameters: { type: 'object', properties: {} },
+    label: () => 'Checking saved places',
+    run: async () => ({ places: placesStore.list().map((p) => ({ name: p.name, radius_m: p.radius })) }),
+  },
+  {
+    name: 'location_forget_place',
+    group: 'web',
+    description: 'Delete a saved place by name.',
+    parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+    label: (a: { name: string }) => `Forgetting ${quote(a.name)}`,
+    run: async (a: { name: string }) => {
+      if (!placesStore.remove(requireString(a.name, 'name'))) throw new ToolError(`No saved place called “${a.name}”.`, 'not_found');
+      return { forgotten: a.name };
     },
   },
   {

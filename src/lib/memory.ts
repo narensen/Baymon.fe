@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 
 /** Matches `Category` in the API. */
 export const MEMORY_CATEGORIES = ['preference', 'fact', 'task', 'decision', 'other'] as const;
@@ -30,6 +30,24 @@ const backend = {
 };
 
 export const lastTouched = (m: Memory) => m.updated_at ?? m.created_at;
+
+/**
+ * Something you said you'd do ("I'll send it tomorrow"), which Baymon extracted from a chat or a
+ * message and follows up on. Stored as a `task` memory with this metadata.
+ */
+export type CommitmentMeta = {
+  kind: 'commitment';
+  status?: 'open' | 'done';
+  /** ISO time it's due, if known. */
+  due_at?: string | null;
+  /** Who it's for, e.g. "Arjun". */
+  person?: string | null;
+  source?: 'chat' | 'screen' | 'notification';
+};
+
+export const isOpenCommitment = (m: Memory) =>
+  (m.metadata as Partial<CommitmentMeta> | null | undefined)?.kind === 'commitment' &&
+  (m.metadata as Partial<CommitmentMeta>).status !== 'done';
 
 /** The API returns oldest first; show the most recently touched first. */
 const newestFirst = (items: Memory[]) =>
@@ -125,6 +143,32 @@ export const memoryStore = {
     } catch (e) {
       setState({ items: previous });
       throw e;
+    }
+  },
+  /**
+   * Marks a commitment done (`metadata.status`). A server without metadata updates rejects the
+   * request; the commitment is then deleted instead, so it still leaves the open list.
+   */
+  async complete(id: string) {
+    version++;
+    const previous = state.items;
+    setState({
+      items: previous.map((m) => (m.id === id ? { ...m, metadata: { ...m.metadata, status: 'done' } } : m)),
+    });
+    try {
+      const saved = await api<Memory>(`/v1/memory/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: { metadata: { status: 'done' } },
+      });
+      setState({ items: state.items.map((m) => (m.id === id ? saved : m)) });
+    } catch (e) {
+      const unsupported = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 404;
+      if (!unsupported) {
+        setState({ items: previous });
+        throw e;
+      }
+      await backend.remove(id);
+      setState({ items: state.items.filter((m) => m.id !== id) });
     }
   },
   /** Drop cached memories, e.g. on sign-out. */

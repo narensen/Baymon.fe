@@ -1,0 +1,6 @@
+R_DEF: Internal format may change without notice
+local
+string baymon_notifications_service_label
+string baymon_screen_service_description
+string baymon_screen_service_label
+xml baymon_screen_service

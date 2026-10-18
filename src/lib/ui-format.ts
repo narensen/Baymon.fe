@@ -12,6 +12,22 @@ export type ScheduleItem = { time?: string; end?: string; title: string; note?: 
 export type Step = { title: string; detail?: string };
 export type CheckItem = { text: string; done?: boolean };
 export type CompareOption = { name: string; summary?: string; pros?: string[]; cons?: string[]; best?: boolean };
+/** A message Baymon drafted for you to send (or edit first). Never sent without a tap. */
+export type Draft = {
+  text: string;
+  to?: string;
+  app?: string;
+  /** How Send works without asking Baymon again: a phone tool and its arguments (the text is added). */
+  send?: { tool: string; args: Record<string, unknown> };
+};
+export type DraftStatus = 'sent' | 'opened';
+
+/** Tools a draft's Send may run directly, and the argument that carries the text. */
+export const DRAFT_SEND_TOOLS: Record<string, string> = {
+  notification_reply: 'text',
+  sms_compose: 'body',
+  email_compose: 'body',
+};
 
 export type Segment =
   | { kind: 'markdown'; text: string }
@@ -23,9 +39,21 @@ export type Segment =
   | { kind: 'steps'; items: Step[] }
   | { kind: 'checklist'; title?: string; items: CheckItem[] }
   | { kind: 'compare'; options: CompareOption[] }
-  | { kind: 'suggestions'; items: string[] };
+  | { kind: 'suggestions'; items: string[] }
+  | { kind: 'draft'; index: number; draft: Draft; status?: DraftStatus };
 
-export const TAGS = ['callout', 'card', 'table', 'stats', 'schedule', 'steps', 'checklist', 'compare', 'suggestions'] as const;
+export const TAGS = [
+  'callout',
+  'card',
+  'table',
+  'stats',
+  'schedule',
+  'steps',
+  'checklist',
+  'compare',
+  'suggestions',
+  'draft',
+] as const;
 
 const TAG = new RegExp(`^[ \\t]*<(${TAGS.join('|')})((?:\\s+[a-z]+="[^"]*")*)\\s*>([\\s\\S]*?)<\\/\\1>[ \\t]*$`, 'gm');
 const FENCE = /^```[\s\S]*?^```[ \t]*$/gm;
@@ -115,6 +143,23 @@ function build(tag: string, a: Record<string, string>, body: string): Segment | 
       const items = array(json(body)).map(str).filter(Boolean).slice(0, 4);
       return items.length ? { kind: 'suggestions', items } : null;
     }
+    case 'draft': {
+      const d = record(json(body));
+      const text = str(d.text);
+      if (!text) return null;
+      const send = record(d.send);
+      return {
+        kind: 'draft',
+        index: 0,
+        draft: {
+          text,
+          to: nonEmpty(d.to),
+          app: nonEmpty(d.app),
+          ...(str(send.tool) && { send: { tool: str(send.tool), args: record(send.args) } }),
+        },
+        status: a.status === 'sent' || a.status === 'opened' ? a.status : undefined,
+      };
+    }
   }
   return null;
 }
@@ -142,6 +187,8 @@ export function parseRich(text: string): Segment[] {
     } catch {
       segment = null;
     }
+    // Drafts are numbered so a Send can point at the right one.
+    if (segment?.kind === 'draft') segment.index = segments.filter((s) => s.kind === 'draft').length;
     // Malformed structured data: show the body as plain Markdown rather than dropping it.
     if (segment) segments.push(segment);
     else pushMarkdown(body);
@@ -164,10 +211,34 @@ export function toPlainSpeech(text: string): string {
           return [s.title, s.subtitle, s.body].filter(Boolean).join('. ');
         case 'suggestions':
           return '';
+        case 'draft':
+          return `Here's a reply${s.draft.to ? ` to ${s.draft.to}` : ''}: ${s.draft.text}`;
         default:
           return 'The details are on screen.';
       }
     })
     .filter(Boolean)
     .join('\n\n');
+}
+
+/** The drafts in a reply, in order. */
+export function draftsIn(text: string): Draft[] {
+  return parseRich(text).flatMap((s) => (s.kind === 'draft' ? [s.draft] : []));
+}
+
+/** Rewrites the `index`-th draft tag (e.g. with the edited text, marked sent). */
+export function replaceDraft(text: string, index: number, draft: Draft, status?: DraftStatus): string {
+  const fences: string[] = [];
+  const masked = text.replace(FENCE, (m) => `\u0000${fences.push(m) - 1}\u0000`);
+  let n = -1;
+  const replaced = masked.replace(TAG, (whole, tag: string) => {
+    if (tag !== 'draft' || ++n !== index) return whole;
+    return `<draft${status ? ` status="${status}"` : ''}>${JSON.stringify(draft)}</draft>`;
+  });
+  return replaced.replace(/\u0000(\d+)\u0000/g, (_, i) => fences[Number(i)]);
+}
+
+/** A draft as a tag, for messages the app writes itself (e.g. a tapped bubble with a reply ready). */
+export function draftTag(draft: Draft) {
+  return `<draft>${JSON.stringify(draft)}</draft>`;
 }

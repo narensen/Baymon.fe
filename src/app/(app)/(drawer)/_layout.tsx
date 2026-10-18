@@ -26,6 +26,7 @@ export default function DrawerLayout() {
         // Memory rows use horizontal swipes, so the drawer only opens from the left edge here.
         options={{ title: 'Memory', swipeEdgeWidth: 32 }}
       />
+      <Drawer.Screen name="automations" options={{ title: 'Automations' }} />
       <Drawer.Screen name="settings" options={{ title: 'Settings' }} />
     </Drawer>
   );

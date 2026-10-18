@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -16,10 +17,13 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.view.KeyEvent
 import android.webkit.MimeTypeMap
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
 import kotlinx.coroutines.delay
 import java.io.File
 
@@ -35,6 +39,29 @@ class ActionFailedException(message: String) : CodedException(message)
 class AppNotFoundException(message: String) : CodedException(message)
 class NoHandlerException(message: String) : CodedException(message)
 
+/** A floating bubble as JS describes it (see `BubbleSpec` in index.ts). */
+class BubbleRecord : Record {
+  @Field val id: String = ""
+  @Field val label: String = ""
+  @Field val urgent: Boolean = false
+  @Field val text: String = ""
+  @Field val expiresAt: Double = 0.0
+  @Field val url: String = ""
+  @Field val talkUrl: String = ""
+  @Field val editUrl: String = ""
+  @Field val draft: String? = null
+  @Field val draftTo: String? = null
+  @Field val replyKey: String? = null
+}
+
+/** Wake word settings from JS. */
+class WakeWordRecord : Record {
+  @Field val accessKey: String = ""
+  @Field val keyword: String = "jarvis"
+  @Field val keywordPath: String? = null
+  @Field val sensitivity: Double = 0.6
+}
+
 class BaymonAgentModule : Module() {
   private val context: Context
     get() = appContext.reactContext ?: throw ActionFailedException("The app isn't ready yet.")
@@ -42,14 +69,35 @@ class BaymonAgentModule : Module() {
   private fun screen() = ScreenService.instance ?: throw ScreenAccessOffException()
   private fun notifications() = NotificationsService.instance ?: throw NotificationAccessOffException()
 
+  private val signalListener: (String) -> Unit = { type -> sendEvent("onSignal", mapOf("type" to type)) }
+  private val actionListener: () -> Unit = { sendEvent("onBubbleAction") }
+  private val intentListener: () -> Unit = { sendEvent("onIntent") }
+
   override fun definition() = ModuleDefinition {
     Name("BaymonAgent")
+
+    Events("onSignal", "onBubbleAction", "onIntent")
+
+    OnCreate {
+      Signals.onSignal = signalListener
+      Signals.onAction = actionListener
+      Intents.onIntent = intentListener
+    }
+    OnDestroy {
+      if (Signals.onSignal === signalListener) Signals.onSignal = null
+      if (Signals.onAction === actionListener) Signals.onAction = null
+      if (Intents.onIntent === intentListener) Intents.onIntent = null
+    }
+    // Shares and the assistant gesture arrive as intents, on launch or while running.
+    OnActivityEntersForeground { Intents.offer(appContext.currentActivity?.intent) }
+    OnNewIntent { intent -> Intents.offer(intent) }
 
     Function("getStatus") {
       mapOf(
         "screenAccess" to (ScreenService.instance != null),
         "notificationAccess" to notificationAccessEnabled(),
         "allFilesAccess" to allFilesAccess(),
+        "overlayAccess" to BubbleOverlay.available(context),
       )
     }
     Function("openSystemSettings") { page: String -> openSystemSettings(page) }
@@ -118,6 +166,68 @@ class BaymonAgentModule : Module() {
     // Notifications
     AsyncFunction("listNotifications") { limit: Int -> notifications().list(limit.coerceIn(1, 50)) }
     AsyncFunction("replyToNotification") { key: String, text: String -> notifications().reply(key, text) }
+
+    // Speaking up: signals for /v1/nudges/check and the floating bubble
+    Function("setSignalSources") { sources: Map<String, Boolean> -> Signals.setSources(context, sources) }
+    Function("takeSignals") { Signals.take(context, "signals") }
+    Function("takeBubbleActions") { Signals.take(context, "actions") }
+    Function("showBubbles") { bubbles: List<BubbleRecord> ->
+      BubbleOverlay.show(
+        context,
+        bubbles.map {
+          Bubble(it.id, it.label, it.urgent, it.text, it.expiresAt.toLong(), it.url, it.talkUrl, it.editUrl, it.draft, it.draftTo, it.replyKey)
+        },
+      )
+    }
+    Function("hideBubbles") { BubbleOverlay.hide() }
+    Function("setWatchedApps") { apps: List<String> -> Signals.setWatchedApps(context, apps) }
+
+    // Ways in: share sheet, assistant gesture, Quick Settings tile, widget
+    AsyncFunction("takeIntent") { Intents.take(context, appContext.currentActivity) }
+    AsyncFunction("requestAddTile") { promise: Promise -> QuickAccess.requestTile(context) { promise.resolve(it) } }
+    Function("requestAddWidget") { QuickAccess.requestWidget(context) }
+    Function("getAudioOutput") { audioOutput() }
+
+    // Reading the screen for "summarise this"
+    Function("previousApp") { ScreenService.instance?.previousApp() }
+    AsyncFunction("readScreenAll") Coroutine { pages: Int, app: String? -> screen().readAll(pages, app) }
+
+    // Wake word
+    Function("startWakeWord") { config: WakeWordRecord ->
+      WakeWordService.start(context, config.accessKey, config.keyword, config.keywordPath, config.sensitivity.toFloat())
+    }
+    Function("stopWakeWord") { WakeWordService.stop(context) }
+    Function("pauseWakeWord") { WakeWordService.pause() }
+    Function("resumeWakeWord") { WakeWordService.resume() }
+    Function("wakeWordStatus") {
+      mapOf(
+        "running" to WakeWordService.isRunning(),
+        "listening" to WakeWordService.isListening(),
+        "error" to WakeWordService.lastError,
+      )
+    }
+  }
+
+  /** Where audio goes right now: Bluetooth (headset, car), wired headphones, or the phone speaker. */
+  private fun audioOutput(): String {
+    val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    val types = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }.toSet()
+    val bluetooth = setOf(
+      AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+      AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+      AudioDeviceInfo.TYPE_BLE_HEADSET,
+      AudioDeviceInfo.TYPE_BLE_SPEAKER,
+    )
+    val wired = setOf(
+      AudioDeviceInfo.TYPE_WIRED_HEADSET,
+      AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+      AudioDeviceInfo.TYPE_USB_HEADSET,
+    )
+    return when {
+      types.any { it in bluetooth } -> "bluetooth"
+      types.any { it in wired } -> "headphones"
+      else -> "speaker"
+    }
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -148,6 +258,8 @@ class BaymonAgentModule : Module() {
         if (Build.VERSION.SDK_INT >= 30) Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, pkg)
         else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg)
       "write_settings" -> Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, pkg)
+      "overlay" -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkg)
+      "assistant" -> Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
       "app" -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg)
       "wifi" -> if (Build.VERSION.SDK_INT >= 29) Intent(Settings.Panel.ACTION_WIFI) else Intent(Settings.ACTION_WIFI_SETTINGS)
       "internet" -> if (Build.VERSION.SDK_INT >= 29) Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY) else Intent(Settings.ACTION_WIRELESS_SETTINGS)

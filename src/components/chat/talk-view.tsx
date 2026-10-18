@@ -11,9 +11,10 @@ import { Text } from '@/components/ui/text';
 import { Colors, Spacing, Springs } from '@/constants/theme';
 import { useVoice } from '@/hooks/use-voice';
 import { ApiError } from '@/lib/api';
-import { toSpeakable } from '@/lib/agent';
+import { speak, toSpeakable } from '@/lib/agent';
 import { conversation, useConversation } from '@/lib/conversation';
 import { haptics } from '@/lib/haptics';
+import { preferences } from '@/lib/preferences';
 
 /**
  * Height the rest of the screen needs besides the orb: header, status line, caption, a notice of a
@@ -46,7 +47,7 @@ export function TalkView() {
   const orbSize = Math.round(Math.min(ORB_MAX, Math.max(ORB_MIN, available / 1.5)));
   const captionHeight = Math.round(Math.min(150, height * 0.18));
   const voice = useVoice();
-  const { messages, working } = useConversation();
+  const { messages, working, speakNext, listenRequest } = useConversation();
   const [phase, setPhase] = useState<TalkPhase>('idle');
   const isWorking = phase === 'thinking' && !!working?.length;
   const [heard, setHeard] = useState<string | null>(null);
@@ -144,6 +145,36 @@ export function TalkView() {
     }
   }
 
+  /** Baymon speaks first (a bubble answered by voice): read the message out, then listen. */
+  async function speakFirst() {
+    const message = conversation.consumeSpeakNext();
+    if (!message) return false;
+    const id = ++session.current;
+    void voice.stopListening();
+    voice.stopPlayback();
+    setHeard(null);
+    setPhase('thinking');
+    try {
+      let uri = message.audioUri;
+      if (!uri) {
+        uri = await speak(message.content, preferences.get().voice);
+        conversation.attachAudio(message.id, uri);
+      }
+      if (session.current !== id) return true;
+      if (speakerOnRef.current) {
+        setPhase('speaking');
+        await voice.play(uri);
+        if (session.current !== id) return true;
+      }
+    } catch (e) {
+      if (session.current !== id) return true;
+      setNoticeIsError(true);
+      setNotice(e instanceof Error ? e.message : 'Couldn’t read that out');
+    }
+    void listen();
+    return true;
+  }
+
   function toggleMic() {
     const next = !micOnRef.current;
     micOnRef.current = next;
@@ -192,17 +223,42 @@ export function TalkView() {
     }
   }
 
-  // Start listening as soon as talk mode opens; stop everything when leaving it.
+  // Start listening as soon as talk mode opens (or speak first); stop everything when leaving it.
   useEffect(() => {
-    void listen();
+    const start = setTimeout(() => {
+      void speakFirst().then((spoke) => {
+        if (!spoke) void listen();
+      });
+    }, 0);
     const sessions = session;
     return () => {
+      clearTimeout(start);
       sessions.current++;
       voice.stopPlayback();
       void voice.stopListening();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A bubble answered by voice while talk mode is already open.
+  useEffect(() => {
+    if (!speakNext) return;
+    const timer = setTimeout(() => void speakFirst(), 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speakNext]);
+
+  // The tile, widget or wake word while talk mode is open: listen now unless already busy.
+  const firstRequest = useRef(listenRequest);
+  useEffect(() => {
+    if (listenRequest === firstRequest.current) return;
+    firstRequest.current = listenRequest;
+    if (phase === 'idle' || phase === 'speaking') {
+      voice.stopPlayback();
+      void listen();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listenRequest]);
 
   const status = isWorking
     ? 'Working · tap to stop'

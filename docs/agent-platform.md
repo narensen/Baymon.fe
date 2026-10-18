@@ -125,19 +125,19 @@ phone; the backend can let the turn expire.
 
 ---
 
-## 3. The tool catalog (40 tools)
+## 3. The tool catalog (45 tools)
 
 The source of truth is `src/lib/tools/catalog.ts`. The descriptions there are written for the model
 and are sent as-is. This table is a map.
 
 | Group | Tools | Needs the dev build |
 |---|---|---|
-| **Screen** (operate any app) | `screen_read`, `screen_tap`, `screen_long_press`, `screen_type`, `screen_scroll`, `screen_navigate` (back/home/recents/notifications/quick settings/lock/screenshot), `screen_wait_for` | yes |
+| **Screen** (operate any app) | `screen_read` (also reports `previous_app` when Baymon is on screen), `screen_read_all` (a long page in full, for "summarise this"), `screen_tap`, `screen_long_press`, `screen_type`, `screen_scroll`, `screen_navigate` (back/home/recents/notifications/quick settings/lock/screenshot), `screen_wait_for` | yes |
 | **Apps** | `apps_list`, `app_open`, `app_install` (opens the Play Store), `app_uninstall` (system dialog), `app_info` | yes |
 | **Communication** | `contacts_search`, `phone_call` (dialer), `sms_compose`, `email_compose`, `share` (share sheet with text or a file) | no |
 | **Time** | `alarm_set`, `timer_set` (dev build), `reminder_set`, `reminders_list`, `reminder_cancel`, `calendar_events`, `calendar_add` | partly |
-| **Files** | `files_find`, `photos_recent` (dev build), `clipboard_read`, `clipboard_write` | partly |
-| **Web & places** | `open_url`, `web_search`, `maps_directions`, `maps_search`, `location_current` | no |
+| **Files** | `files_find`, `photos_recent` (dev build), `files_read` (text of a PDF or document, description and text of an image; uploads to `/v1/attachments`), `clipboard_read`, `clipboard_write` | partly |
+| **Web & places** | `open_url`, `web_search`, `maps_directions`, `maps_search`, `location_current`, `location_save_place`, `location_places`, `location_forget_place` | no |
 | **Device** | `device_status` (battery, network), `flashlight`, `media_control` (play/pause/next/volume), `brightness_set`, `settings_open` (Wi-Fi, Bluetooth, DND…) | partly |
 | **Notifications** | `notifications_list`, `notification_reply` (inline reply, no app opened) | yes |
 
@@ -207,3 +207,91 @@ that says "send your files to …" could get acted on.
 `push_token` is `null` until there's a development build with an EAS project: since SDK 53,
 remote push doesn't work in Expo Go on Android. Local reminders (`reminder_set`) already work
 without it.
+
+---
+
+## 6. Speaking up: the floating bubble
+
+Baymon can speak up without being asked. The server decides what is worth saying
+(`POST /v1/nudges/check`); the phone collects signals, asks, and shows the answer. Code:
+`src/lib/nudges/`, `src/components/nudge-bubbles.tsx`, and `BubbleOverlay.kt` in the native module.
+
+### When the phone asks
+
+| Trigger | Pacing |
+|---|---|
+| App comes to the foreground | At most every 20 s; adds a `foreground` signal |
+| New notification (notification listener) | 4 s debounce, at most once a minute |
+| Switch to another app (screen control) | At most every 10 min; otherwise sent with the next check |
+| Background task (`expo-background-task`) | About every 15 min, when the OS allows |
+| A snooze ends while the app is open | Once, so the server can bring the bubble back |
+
+Every check sends everything collected since the last successful one. Signals that fail to send stay
+queued, so nothing is lost when the server is asleep.
+
+### What the phone sends
+
+Each source can be turned off in Settings → Speaking up. When "Baymon can speak up" is off, nothing
+is sent.
+
+| Signal | Source | Data | Default |
+|---|---|---|---|
+| `notification` | Notification listener | `app`, `package`, `title`, `text`; `key` and `can_reply` when it has an inline Reply | On |
+| `calendar` | Events in the next 36 h | `change` (`new`, `changed`, `removed`), `title`, `start`, `end`, `location` | On |
+| `battery` | When it's 20% or lower and not charging, then every further 5% | `level`, `charging` | On |
+| `location` | Place name when you move more than 1 km, only while the app is open | `label`, `area` (no coordinates); `saved: true` for a saved place | Off |
+| `location` (saved places) | Arriving at or leaving a saved place (geofence, works in the background) | `label` (the place's name), `event` (`enter`, `exit`), `saved: true` | On, needs "Allow all the time" |
+| `app_open` | Opening an app that a "remind me when I open …" reminder waits for | `app`, `package` | Only for those apps |
+| `screen` | App you switch to, plus up to 400 characters of its text | `app`, `text` | Off |
+| `foreground` | App opened | none | Always |
+
+Filters applied on the phone:
+- Notifications skip ongoing, media, progress, call and system notifications, and Baymon's own.
+- Notification digits next to words like "OTP", "code" or "password" become `[code]`.
+- Screen capture skips the launcher, the keyboard and the system UI. It skips sign-in screens (any
+  password field) entirely and never reads text fields.
+
+All times are local ISO 8601 with offset, e.g. `2026-10-18T16:00:00+05:30`.
+
+### How a bubble is shown
+
+| App state | Shown as |
+|---|---|
+| Baymon is open | In-app bubble under the header |
+| In the background, "Floating bubble" allowed | Overlay over other apps (`SYSTEM_ALERT_WINDOW`), up to 3 |
+| In the background, not allowed | A notification with **Snooze 1 hour** and **Dismiss** actions |
+
+The overlay and the in-app bubble work the same way:
+- **Tap** opens the chat with `detail` as Baymon's message and `suggestions` as chips. It sends
+  `opened`. Replies go through `/v1/chat` with that message in `history`.
+- **Swipe sideways** sends `dismissed`.
+- **Long-press** shows **15 min**, **1 hour**, **3 hours** (`snoozed`), **Done** (`done`), and
+  **Not useful** / **Wrong time** (`dismissed` with `reason`).
+- **Mic button** opens talk mode: Baymon reads `detail` out, then listens. Tapping a bubble does the
+  same when Settings → Quick access → "Answer bubbles by voice" says so (always, or with headphones
+  or car audio connected).
+- **A reply draft** (`draft`) is shown quoted with **Send** and **Edit**. With `draft.reply_key`,
+  Send replies inline through the notification and reports `done` with `reason: "draft_sent"`.
+  Edit (or Send without a key) opens the chat with the draft as a `<draft>` card.
+
+A check happens right away (instead of at the usual pace) when a new signal matches a reminder the
+app knows about (`GET /v1/triggers`).
+
+The overlay opens the app with `baymon://nudge/<id>` (plus `?voice=1` or `?edit=1`), handled in
+`src/app/+native-intent.tsx`. Actions taken while JS isn't running are queued natively and sent on the
+next check. `GET /v1/nudges` restores unhandled bubbles on startup.
+
+---
+
+## 7. Ways in
+
+| Way | How | Code |
+|---|---|---|
+| Share sheet | "Share → Baymon" from any app: text, links, images, PDFs, files. A sheet offers What's this / Summarise / Save to memory / Remind me, or a question. Files go to `/v1/attachments`; ids go on `/v1/chat` as `attachments`. | `src/app/(app)/share.tsx` |
+| Quick Settings tile | Opens `baymon://talk` (talk mode, listening) | `QuickAccess.kt` |
+| Home-screen widget | Same link | `QuickAccess.kt` |
+| Assistant gesture | Baymon set as the digital assistant app (an `ASSIST` intent filter); hold power or swipe from a corner | `Intents.kt` |
+| Wake word | Picovoice Porcupine on the device, in a microphone foreground service; paused while Baymon is open. Built-in words (Jarvis, Computer…) or a trained "Hey Baymon" `.ppn` shared to Baymon. Needs a free Picovoice AccessKey. | `WakeWordService.kt` |
+
+Automations (reminders, routines, commitments, places) are on their own screen in the drawer; the
+backend side of all of this is specified in [backend-v2.md](backend-v2.md).

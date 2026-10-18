@@ -3,6 +3,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { Markdown } from '@/components/chat/markdown';
 import { Callout, Card, Checklist, Compare, Schedule, Stats, Steps, Suggestions } from '@/components/chat/rich/blocks';
+import { DraftCard } from '@/components/chat/rich/draft';
 import { parseRich, type Segment } from '@/lib/ui-format';
 import { Table } from '@/components/chat/rich/table';
 import { Spacing, Springs } from '@/constants/theme';
@@ -13,10 +14,15 @@ type Props = {
   onSuggest?: (text: string) => void;
   /** Play the block-by-block entrance (new replies only). */
   animate?: boolean;
+  /** Sends a drafted reply (by its index among the reply's drafts). */
+  onSendDraft?: (index: number, text: string) => Promise<'sent' | 'opened' | 'asked'>;
+  /** Open the first draft for editing. */
+  editDraft?: boolean;
+  onDraftEdited?: () => void;
 };
 
 /** An agent reply: Markdown plus the UI tags described in docs/agent-ui-format.md. */
-export function RichText({ text, onSuggest, animate = false }: Props) {
+export function RichText({ text, onSuggest, animate = false, onSendDraft, editDraft = false, onDraftEdited }: Props) {
   const segments = parseRich(text).filter((s) => s.kind !== 'suggestions' || onSuggest);
   return (
     <View style={styles.root}>
@@ -24,7 +30,17 @@ export function RichText({ text, onSuggest, animate = false }: Props) {
         <Animated.View
           key={i}
           entering={animate ? FadeInDown.delay(i * 70).springify().damping(Springs.snappy.damping) : undefined}>
-          <Block segment={segment} onSuggest={onSuggest} />
+          {segment.kind === 'draft' ? (
+            <DraftCard
+              draft={segment.draft}
+              status={segment.status}
+              onSend={onSendDraft && ((t) => onSendDraft(segment.index, t))}
+              autoEdit={editDraft && segment.index === 0}
+              onAutoEdited={onDraftEdited}
+            />
+          ) : (
+            <Block segment={segment} onSuggest={onSuggest} />
+          )}
         </Animated.View>
       ))}
     </View>
@@ -53,6 +69,9 @@ function Block({ segment, onSuggest }: { segment: Segment; onSuggest?: (text: st
       return <Compare options={segment.options} />;
     case 'suggestions':
       return <Suggestions items={segment.items} onPick={onSuggest} />;
+    case 'draft':
+      // Rendered by RichText (it needs the message's send handler).
+      return null;
   }
 }
 

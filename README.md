@@ -22,6 +22,9 @@ Matte black. Off-white type. Physics-based motion. One agent that remembers you.
 | **Memory you control** | See, edit, recategorize and delete everything the agent remembers about you. |
 | **Six voices** | Pick one in Settings and hear a preview first. |
 | **Operates your phone** | 40 tools: it reads any app's screen and taps, types and scrolls, plus files, alarms, reminders, calendar, contacts, calls, maps and settings. |
+| **Speaks up on its own** | A floating bubble when something needs you: a reminder that's due, a meeting that moved, a battery that won't last the trip. Tap to talk about it, answer by voice, send the reply it drafted, swipe it away, or snooze it. |
+| **Remembers to remind you** | "When Priya messages", "when I get to the office", "next time I open Swiggy". Plus routines you run by name, and the things you said you'd do. All on the Automations screen. |
+| **Reachable from anywhere** | Share anything to it, a Quick Settings tile, a home-screen widget, the assistant gesture, or a wake word. |
 
 ### The orb is the agent
 
@@ -109,13 +112,18 @@ src/
 │  ├─ agent.ts               chat / talk / transcribe / speak
 │  ├─ conversation.ts        chat store, saved per user
 │  ├─ memory.ts              memory store with optimistic updates
+│  ├─ nudges/                speaking up: signals, checks, bubbles, background refresh
+│  ├─ automations.ts         "remind me when…" triggers and routines (server-side)
+│  ├─ places.ts              saved places and arrive/leave geofences
+│  ├─ quick-access.ts        share sheet, assistant gesture, wake word
+│  ├─ attachments.ts         uploads for shared files and files_read
 │  ├─ speech-detector.ts     adaptive end-of-speech detection
 │  ├─ tools/                 the phone tool catalog + runner (sent to the backend)
 │  ├─ device.ts              device registration
 │  └─ ui-format.ts           UI-tag parser
 └─ providers/auth-provider.tsx
 modules/baymon-agent/        native Android module: screen control, apps, files, notifications
-docs/                        backend + prompt specs
+docs/                        backend + prompt specs (backend-v2.md: what the server still needs)
 ```
 
 ---

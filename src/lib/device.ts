@@ -27,6 +27,7 @@ export function capabilities() {
     screen_control: status?.screenAccess ?? false,
     notification_access: status?.notificationAccess ?? false,
     all_files: status?.allFilesAccess ?? false,
+    overlay: status?.overlayAccess ?? false,
   };
 }
 

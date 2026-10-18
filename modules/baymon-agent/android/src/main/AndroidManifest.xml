@@ -11,6 +11,12 @@
         tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+    <!-- The floating bubble: Baymon speaking up over other apps. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Wake word: listens on the device in a microphone foreground service. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Set alarms and timers in the clock app. -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
@@ -39,5 +45,36 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- Quick Settings tile: tap to talk to Baymon. -->
+        <service
+            android:name=".TalkTileService"
+            android:exported="true"
+            android:icon="@drawable/baymon_tile"
+            android:label="@string/baymon_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Home-screen widget: tap to talk to Baymon. -->
+        <receiver
+            android:name=".TalkWidget"
+            android:exported="false"
+            android:label="@string/baymon_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/baymon_widget_info" />
+        </receiver>
+
+        <!-- Wake word ("Hey Baymon"), only while turned on in Settings. -->
+        <service
+            android:name=".WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
     </application>
 </manifest>

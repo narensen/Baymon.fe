@@ -48,6 +48,14 @@ const ROWS: Row[] = [
     enable: systemPage('accessibility'),
   },
   {
+    key: 'overlay',
+    title: 'Floating bubble',
+    detail: 'Speak up over other apps. Without it, Baymon sends a notification instead.',
+    native: true,
+    get: async () => BaymonAgent?.getStatus().overlayAccess ?? false,
+    enable: systemPage('overlay'),
+  },
+  {
     key: 'notification_access',
     title: 'Notification access',
     detail: 'Read notifications and reply to messages without opening apps.',

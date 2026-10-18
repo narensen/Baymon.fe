@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="expo.modules.baymonagent" >
+
+    <uses-sdk android:minSdkVersion="24" />
+
+    <!-- Find and open any installed app by name. -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <!-- Show the system uninstall dialog for an app. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Find documents anywhere in shared storage (granted in Settings, not at runtime). -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <!-- The floating bubble: Baymon speaking up over other apps. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Set alarms and timers in the clock app. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
+    <application>
+
+        <!-- Screen control: reads the screen's structure and taps/types/scrolls. -->
+        <service
+            android:name="expo.modules.baymonagent.ScreenService"
+            android:exported="true"
+            android:label="@string/baymon_screen_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" >
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/baymon_screen_service" />
+        </service>
+
+        <!-- Notification access: read and reply to notifications. -->
+        <service
+            android:name="expo.modules.baymonagent.NotificationsService"
+            android:exported="true"
+            android:label="@string/baymon_notifications_service_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" >
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+
+</manifest>

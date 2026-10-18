@@ -1,0 +1,90 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    xmlns:tools="http://schemas.android.com/tools"
+4    package="expo.modules.baymonagent" >
+5
+6    <uses-sdk android:minSdkVersion="24" />
+7
+8    <!-- Find and open any installed app by name. -->
+9    <uses-permission
+9-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:5:5-6:53
+10        android:name="android.permission.QUERY_ALL_PACKAGES"
+10-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:5:22-74
+11        tools:ignore="QueryAllPackagesPermission" />
+11-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:6:9-50
+12    <!-- Show the system uninstall dialog for an app. -->
+13    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+13-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:8:5-82
+13-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:8:22-79
+14    <!-- Find documents anywhere in shared storage (granted in Settings, not at runtime). -->
+15    <uses-permission
+15-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:10:5-11:40
+16        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+16-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:10:22-79
+17        tools:ignore="ScopedStorage" />
+17-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:11:9-37
+18    <uses-permission
+18-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:12:5-13:38
+19        android:name="android.permission.READ_EXTERNAL_STORAGE"
+19-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:12:22-77
+20        android:maxSdkVersion="29" />
+20-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:13:9-35
+21    <!-- The floating bubble: Baymon speaking up over other apps. -->
+22    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+22-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:15:5-78
+22-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:15:22-75
+23    <!-- Set alarms and timers in the clock app. -->
+24    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+24-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:17:5-78
+24-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:17:22-75
+25
+26    <application>
+26-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:19:5-44:19
+27
+28        <!-- Screen control: reads the screen's structure and taps/types/scrolls. -->
+29        <service
+29-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:21:9-32:19
+30            android:name="expo.modules.baymonagent.ScreenService"
+30-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:22:13-42
+31            android:exported="true"
+31-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:23:13-36
+32            android:label="@string/baymon_screen_service_label"
+32-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:24:13-64
+33            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" >
+33-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:25:13-79
+34            <intent-filter>
+34-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:26:13-28:29
+35                <action android:name="android.accessibilityservice.AccessibilityService" />
+35-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:27:17-92
+35-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:27:25-89
+36            </intent-filter>
+37
+38            <meta-data
+38-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:29:13-31:65
+39                android:name="android.accessibilityservice"
+39-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:30:17-60
+40                android:resource="@xml/baymon_screen_service" />
+40-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:31:17-62
+41        </service>
+42
+43        <!-- Notification access: read and reply to notifications. -->
+44        <service
+44-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:35:9-43:19
+45            android:name="expo.modules.baymonagent.NotificationsService"
+45-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:36:13-49
+46            android:exported="true"
+46-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:37:13-36
+47            android:label="@string/baymon_notifications_service_label"
+47-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:38:13-71
+48            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" >
+48-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:39:13-87
+49            <intent-filter>
+49-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:40:13-42:29
+50                <action android:name="android.service.notification.NotificationListenerService" />
+50-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:41:17-99
+50-->/home/naren/Documents/baymon/modules/baymon-agent/android/src/main/AndroidManifest.xml:41:25-96
+51            </intent-filter>
+52        </service>
+53    </application>
+54
+55</manifest>

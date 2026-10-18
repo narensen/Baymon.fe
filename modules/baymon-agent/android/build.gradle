@@ -13,3 +13,8 @@ android {
     versionName '1.0.0'
   }
 }
+
+dependencies {
+  // On-device wake word ("Hey Baymon"); audio never leaves the phone.
+  implementation 'ai.picovoice:porcupine-android:4.0.2'
+}

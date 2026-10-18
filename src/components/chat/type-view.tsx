@@ -25,7 +25,7 @@ const LIST_PADDING = Spacing.four;
 const SUGGESTIONS = ['Plan my day', 'What do you remember about me?', 'Help me think something through'];
 
 export function TypeView() {
-  const { messages, thinking, working } = useConversation();
+  const { messages, thinking, working, editNext } = useConversation();
   const insets = useSafeAreaInsets();
   const voice = useVoice();
   const [draft, setDraft] = useState('');
@@ -178,6 +178,7 @@ export function TypeView() {
                   onRetry={(m) => conversation.retry(m.id)}
                   // The list is newest-first: suggestions only on the latest reply, and not mid-request.
                   onSuggest={index === 0 && item.role === 'assistant' && !thinking ? send : undefined}
+                  editDraft={editNext === item.id}
                 />
               </View>
             )}

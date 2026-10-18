@@ -7,13 +7,22 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import kotlinx.coroutines.delay
+import org.json.JSONObject
 
 /**
  * Screen control. Reads the active window as a numbered list of elements (text, buttons, fields)
  * and performs taps, typing, scrolling and system navigation on them. It only acts when the app
- * asks it to; it doesn't record anything on its own.
+ * asks it to.
+ *
+ * Only if the user turns on "Screen" under what Baymon notices does it record anything by itself:
+ * the app you switch to and a short excerpt of its text, so Baymon can speak up about it.
  */
 class ScreenService : AccessibilityService() {
   companion object {
@@ -24,6 +33,12 @@ class ScreenService : AccessibilityService() {
     private const val MAX_ELEMENTS = 200
     private const val MAX_LABEL = 140
     private const val MAX_DEPTH = 60
+
+    private const val SCREEN_TEXT_CHARS = 400
+    /** Let the new screen finish loading before reading it. */
+    private const val SCREEN_SETTLE_MS = 1_500L
+    /** Don't record the same app again within this window. */
+    private const val SCREEN_REPEAT_MS = 10 * 60_000L
   }
 
   private val lock = Any()
@@ -37,15 +52,91 @@ class ScreenService : AccessibilityService() {
 
   override fun onUnbind(intent: Intent?): Boolean {
     instance = null
+    handler.removeCallbacksAndMessages(null)
     return super.onUnbind(intent)
   }
 
   override fun onDestroy() {
     instance = null
+    handler.removeCallbacksAndMessages(null)
     super.onDestroy()
   }
 
-  override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+  // ---------------------------------------------------------------------------------------------
+  // Screen context signals (opt-in)
+  // ---------------------------------------------------------------------------------------------
+
+  private val handler = Handler(Looper.getMainLooper())
+  private var lastPackage: String? = null
+  private val lastCaptured = HashMap<String, Long>()
+  private var pendingCapture: Runnable? = null
+
+  /** The launcher, the keyboard, the status bar and Baymon itself aren't "apps you're using". */
+  private val ignoredPackages: Set<String> by lazy {
+    val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+    @Suppress("DEPRECATION")
+    val launchers = packageManager.queryIntentActivities(home, 0).map { it.activityInfo.packageName }
+    setOf(packageName, "android", "com.android.systemui") + launchers
+  }
+
+  private fun isIgnored(pkg: String): Boolean {
+    if (pkg in ignoredPackages) return true
+    val keyboard = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+    return keyboard?.substringBefore('/') == pkg
+  }
+
+  override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+    if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+    val pkg = event.packageName?.toString() ?: return
+    if (pkg == lastPackage || isIgnored(pkg)) return
+    lastPackage = pkg
+    val label = appLabel(pkg) ?: pkg
+    // A "remind me when I open …" reminder is waiting for this app: report it (name only) right away.
+    if (Signals.isWatched(this, label, pkg)) {
+      Signals.add(this, "app_open", isoTime(System.currentTimeMillis()), JSONObject().put("app", label).put("package", pkg))
+    }
+    pendingCapture?.let { handler.removeCallbacks(it) }
+    pendingCapture = null
+    if (!Signals.enabled(this, "screen")) return
+    val last = lastCaptured[pkg]
+    if (last != null && SystemClock.elapsedRealtime() - last < SCREEN_REPEAT_MS) return
+    val capture = Runnable { captureScreen(pkg) }
+    pendingCapture = capture
+    handler.postDelayed(capture, SCREEN_SETTLE_MS)
+  }
+
+  private fun captureScreen(pkg: String) {
+    pendingCapture = null
+    val root = rootInActiveWindow ?: return
+    if (root.packageName?.toString() != pkg) return
+    val parts = ArrayList<String>()
+    var length = 0
+    var sensitive = false
+    fun walk(node: AccessibilityNodeInfo, depth: Int) {
+      if (sensitive || length >= SCREEN_TEXT_CHARS || depth > MAX_DEPTH || !node.isVisibleToUser) return
+      if (node.isPassword) {
+        sensitive = true
+        return
+      }
+      // What the user is typing stays on the phone.
+      if (!node.isEditable) {
+        val t = clean(node.text).ifEmpty { clean(node.contentDescription) }
+        if (t.isNotEmpty() && parts.lastOrNull() != t) {
+          parts.add(t)
+          length += t.length + 3
+        }
+      }
+      for (i in 0 until node.childCount) node.getChild(i)?.let { walk(it, depth + 1) }
+    }
+    walk(root, 0)
+    // Sign-in screens are skipped entirely.
+    if (sensitive || parts.isEmpty()) return
+    lastCaptured[pkg] = SystemClock.elapsedRealtime()
+    val data = JSONObject()
+      .put("app", appLabel(pkg) ?: pkg)
+      .put("text", parts.joinToString(" · ").take(SCREEN_TEXT_CHARS))
+    Signals.add(this, "screen", isoTime(System.currentTimeMillis()), data)
+  }
 
   override fun onInterrupt() = Unit
 
@@ -167,6 +258,102 @@ class ScreenService : AccessibilityService() {
     } catch (_: Exception) {
       pkg
     }
+  }
+
+  /** The app the user was in before Baymon (Baymon itself, the launcher and the keyboard don't count). */
+  fun previousApp(): Map<String, Any?>? {
+    val pkg = lastPackage ?: return null
+    return mapOf("package" to pkg, "app" to (appLabel(pkg) ?: pkg))
+  }
+
+  /**
+   * Reads a long screen in full: collects the text, scrolls, and repeats until nothing new appears
+   * (or `maxPages`). With `app` (or when Baymon itself is in front), that app is brought forward
+   * first and Baymon comes back afterwards. Text being typed and password fields are skipped.
+   */
+  suspend fun readAll(maxPages: Int, app: String?): Map<String, Any?> {
+    val front = rootInActiveWindow?.packageName?.toString()
+    val target = app?.trim()?.takeIf { it.isNotEmpty() }?.let { resolvePackage(it) }
+      ?: if (front == packageName) lastPackage else null
+    var cameBack = false
+    if (target != null && target != front) {
+      val launch = packageManager.getLaunchIntentForPackage(target)
+        ?: throw AppNotFoundException("Can’t bring $target to the front.")
+      startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      cameBack = true
+      delay(1_500)
+    }
+    val lines = LinkedHashSet<String>()
+    var pages = 0
+    var reachedEnd = false
+    val shownPkg = rootInActiveWindow?.packageName?.toString()
+    try {
+      while (pages < maxPages.coerceIn(1, 20)) {
+        val before = lines.size
+        rootInActiveWindow?.let { collectLines(it, 0, lines) }
+        pages++
+        if (lines.size == before || lines.sumOf { it.length } > 40_000) {
+          reachedEnd = lines.size == before
+          break
+        }
+        if (!scrollForward()) {
+          reachedEnd = true
+          break
+        }
+        delay(700)
+      }
+    } finally {
+      if (cameBack) packageManager.getLaunchIntentForPackage(packageName)?.let {
+        startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+      }
+    }
+    return mapOf(
+      "app" to appLabel(shownPkg),
+      "package" to shownPkg,
+      "pages" to pages,
+      "complete" to reachedEnd,
+      "text" to lines.joinToString("\n").take(30_000),
+    )
+  }
+
+  private fun resolvePackage(query: String): String? {
+    if (packageManager.getLaunchIntentForPackage(query) != null) return query
+    val q = query.lowercase()
+    val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    @Suppress("DEPRECATION")
+    val apps = packageManager.queryIntentActivities(launcher, 0)
+    return apps.firstOrNull { it.loadLabel(packageManager).toString().lowercase() == q }?.activityInfo?.packageName
+      ?: apps.firstOrNull { it.loadLabel(packageManager).toString().lowercase().contains(q) }?.activityInfo?.packageName
+  }
+
+  private fun collectLines(node: AccessibilityNodeInfo, depth: Int, out: MutableSet<String>) {
+    if (depth > MAX_DEPTH || !node.isVisibleToUser || node.isPassword) return
+    if (!node.isEditable) {
+      val t = node.text?.toString()?.replace(Regex("\\s+"), " ")?.trim().orEmpty()
+        .ifEmpty { node.contentDescription?.toString()?.replace(Regex("\\s+"), " ")?.trim().orEmpty() }
+      if (t.length > 1) out.add(t)
+    }
+    for (i in 0 until node.childCount) node.getChild(i)?.let { collectLines(it, depth + 1, out) }
+  }
+
+  /** Scrolls the biggest scrollable area forward; false when nothing would move. */
+  private fun scrollForward(): Boolean {
+    var best: AccessibilityNodeInfo? = null
+    var bestArea = 0
+    fun find(n: AccessibilityNodeInfo, depth: Int) {
+      if (depth > MAX_DEPTH || !n.isVisibleToUser) return
+      if (n.isScrollable) {
+        val r = Rect().also { n.getBoundsInScreen(it) }
+        val area = r.width() * r.height()
+        if (area > bestArea) {
+          best = n
+          bestArea = area
+        }
+      }
+      for (i in 0 until n.childCount) n.getChild(i)?.let { find(it, depth + 1) }
+    }
+    rootInActiveWindow?.let { find(it, 0) }
+    return best?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) == true
   }
 
   fun containsText(text: String): Boolean =
